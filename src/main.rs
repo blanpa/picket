@@ -8,6 +8,7 @@ mod blocklist;
 mod capture;
 mod checks;
 mod deep;
+mod demo;
 mod devices;
 mod docker;
 mod fixes;
@@ -55,6 +56,7 @@ AUFRUF
   picket devices         Geräte im lokalen Netz (mit --scan: Netz aktiv durchsuchen)
   picket ports <IP>      Übliche Dienste eines Geräts im Netz prüfen
   picket docker          Container, ihre Ports und Rechte
+  picket images          Images der laufenden Container mit Trivy auf bekannte Lücken prüfen
   picket deep            Tiefenprüfung (Zugangsdaten, Autostart, set-uid, Lynis; dauert Minuten)
   picket watch           Eine Wächter-Runde: meldet, was sich geändert hat
   picket watch on|off    Wächter alle 5 Minuten im Hintergrund laufen lassen
@@ -304,6 +306,13 @@ fn install_desktop() -> Result<(), String> {
         std::fs::write(&path, content).map_err(|e| format!("{}: {e}", path.display()))?;
         println!("geschrieben: {}", path.display());
     }
+    // The desktop only notices a replaced icon when the theme directory itself changes:
+    // without this, an updated icon keeps showing its old picture until the next login.
+    if let Some(theme) = icons.parent().and_then(|p| p.parent()) {
+        if let Ok(dir) = std::fs::File::open(theme) {
+            let _ = dir.set_modified(std::time::SystemTime::now());
+        }
+    }
     // Entries from before the program was renamed.
     let _ = std::fs::remove_file(apps.join("io.fwsecurity.App.desktop"));
     let _ = std::fs::remove_file(icons.join("io.fwsecurity.App.svg"));
@@ -362,6 +371,14 @@ fn main() -> ExitCode {
 
     if util::uid() != 0 {
         util::migrate_legacy_dirs();
+    }
+    // Terminal commands end quietly when their output is cut off (`picket check | head`)
+    // instead of panicking on the closed pipe. The window and the dashboard keep the default.
+    if !matches!(positional.first().copied(), None | Some("gui" | "serve")) {
+        // SAFETY: restores the default action of SIGPIPE before any other thread exists.
+        unsafe {
+            libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+        }
     }
 
     // The installed root helper only carries out the root commands, nothing else.
@@ -527,6 +544,33 @@ fn main() -> ExitCode {
                 }
             }
             ExitCode::SUCCESS
+        }
+        ["images"] => {
+            if !docker::trivy_available() {
+                eprintln!("Trivy ist nicht installiert. Mit Homebrew: brew install trivy – sonst siehe trivy.dev.");
+                return ExitCode::from(2);
+            }
+            let mut images: Vec<String> = docker::list().unwrap_or_default().into_iter().map(|c| c.image).collect();
+            images.sort();
+            images.dedup();
+            let mut worst = ExitCode::SUCCESS;
+            for image in images {
+                eprintln!("Prüfe {image} …");
+                match docker::scan_image(&image) {
+                    Ok(scan) if json => println!("{}", serde_json::to_string(&scan).unwrap_or_default()),
+                    Ok(scan) => {
+                        println!("{}: {} kritisch, {} hoch", scan.image, scan.critical, scan.high);
+                        for line in scan.examples.iter().take(if all { usize::MAX } else { 4 }) {
+                            println!("    {line}");
+                        }
+                        if scan.critical > 0 {
+                            worst = ExitCode::from(1);
+                        }
+                    }
+                    Err(e) => eprintln!("{image}: {e}"),
+                }
+            }
+            worst
         }
         ["deep"] => {
             let findings = deep::run_all(&|step| eprintln!("{step}"));

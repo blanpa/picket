@@ -14,7 +14,7 @@ use std::path::Path;
 pub const PATH: &str = "/usr/local/libexec/picket-helper";
 pub const POLICY: &str = "/usr/share/polkit-1/actions/io.github.blanpa.Picket.policy";
 /// Raised whenever the helper's commands change, so the window notices an outdated copy.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 /// What the helper copy may be asked to do.
 /// Files installed under the program's former name; removed when the helper is (re)installed.

@@ -93,6 +93,9 @@ pub fn record(snap: &NetSnapshot) {
 
 /// Recorded days, newest first.
 pub fn days() -> Vec<String> {
+    if crate::demo::enabled() {
+        return crate::demo::history_days();
+    }
     let mut v: Vec<String> = std::fs::read_dir(dir())
         .into_iter()
         .flatten()
@@ -106,6 +109,9 @@ pub fn days() -> Vec<String> {
 
 /// The entries of one day, largest data volume first.
 pub fn load(day: &str) -> Vec<Entry> {
+    if crate::demo::enabled() {
+        return crate::demo::history();
+    }
     if !day.chars().all(|c| c.is_ascii_digit() || c == '-') {
         return Vec::new();
     }

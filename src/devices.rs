@@ -354,6 +354,9 @@ fn network_id(gateway: Option<&String>, neigh: &[Neighbour], iface: &str, own_ip
 }
 
 pub fn discover_with(mode: Mode) -> Vec<Network> {
+    if crate::demo::enabled() {
+        return crate::demo::devices();
+    }
     let active = mode == Mode::Active;
     let ifaces: Vec<net::Iface> = net::read_ifaces()
         .into_iter()

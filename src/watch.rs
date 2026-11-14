@@ -35,6 +35,13 @@ pub struct State {
     /// Last time the known networks were searched actively.
     #[serde(default)]
     pub last_sweep: u64,
+    /// Programs that have connected to the Internet, with the countries they reached.
+    /// None until a baseline exists.
+    #[serde(default)]
+    pub programs: Option<BTreeMap<String, BTreeSet<String>>>,
+    /// Local networks the laptop has been attached to.
+    #[serde(default)]
+    pub attached: Option<BTreeSet<String>>,
 }
 
 /// What the watcher looks at in one round.
@@ -46,6 +53,11 @@ pub struct Observation {
     pub ports: BTreeMap<String, String>,
     /// (network key, [(mac, description)])
     pub networks: Vec<(String, Vec<(String, String)>)>,
+    /// program -> countries it currently talks to on the Internet
+    pub programs: BTreeMap<String, BTreeSet<String>>,
+    /// Every local network the laptop is attached to right now.
+    pub attached: Vec<String>,
+    pub firewall_active: bool,
 }
 
 fn event(now: u64, level: &str, title: String, text: String) -> Event {
@@ -102,7 +114,58 @@ pub fn diff(prev: &State, obs: &Observation, now: u64) -> (Vec<Event>, State) {
         networks.entry(key.clone()).or_default().extend(devices.iter().map(|d| d.0.clone()));
     }
 
-    let state = State { last_full: prev.last_full, findings, ports: Some(current), networks, last_sweep: prev.last_sweep };
+    // First contact: a program that has never been online before, or a new country for a known one.
+    let mut programs = prev.programs.clone().unwrap_or_default();
+    for (program, countries) in &obs.programs {
+        match programs.get_mut(program) {
+            None => {
+                if prev.programs.is_some() {
+                    let list: Vec<&str> = countries.iter().map(String::as_str).collect();
+                    events.push(event(
+                        now,
+                        "warn",
+                        "Neues Programm im Internet".into(),
+                        format!("{program} verbindet sich zum ersten Mal ins Internet{}.", if list.is_empty() { String::new() } else { format!(" ({})", list.join(", ")) }),
+                    ));
+                }
+                programs.insert(program.clone(), countries.clone());
+            }
+            Some(known) => {
+                for c in countries.difference(known) {
+                    if prev.programs.is_some() {
+                        events.push(event(now, "info", "Neues Zielland".into(), format!("{program} spricht zum ersten Mal mit Servern in {c}.")));
+                    }
+                }
+                known.extend(countries.iter().cloned());
+            }
+        }
+    }
+
+    // A network the laptop has never been on: the moment to check the firewall.
+    let mut attached = prev.attached.clone().unwrap_or_default();
+    for n in &obs.attached {
+        if attached.insert(n.clone()) && prev.attached.is_some() {
+            events.push(event(
+                now,
+                if obs.firewall_active { "info" } else { "warn" },
+                "Neues Netzwerk".into(),
+                format!(
+                    "Der Laptop ist zum ersten Mal mit {n} verbunden. Die Firewall ist {}.",
+                    if obs.firewall_active { "eingeschaltet" } else { "AUS – offene Ports sind dort für andere erreichbar" }
+                ),
+            ));
+        }
+    }
+
+    let state = State {
+        last_full: prev.last_full,
+        findings,
+        ports: Some(current),
+        networks,
+        last_sweep: prev.last_sweep,
+        programs: Some(programs),
+        attached: Some(attached),
+    };
     (events, state)
 }
 
@@ -116,13 +179,33 @@ fn events_path() -> PathBuf {
 
 /// Recorded events, newest first.
 pub fn events() -> Vec<Event> {
+    if crate::demo::enabled() {
+        return crate::demo::events();
+    }
     let mut v: Vec<Event> = util::read_json(&events_path()).unwrap_or_default();
     v.reverse();
     v
 }
 
-fn observe(report: &Report, snap: &net::NetSnapshot, sweep: bool) -> Observation {
+fn observe(report: &Report, snap: &net::NetSnapshot, sweep: bool, firewall_active: bool) -> Observation {
+    let found = devices::discover_with(if sweep { devices::Mode::ActiveKnown } else { devices::Mode::Passive });
+    let mut programs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for p in snap.programs.iter().filter(|p| !p.name.is_empty()) {
+        let internet: Vec<&net::Endpoint> = p.endpoints.iter().filter(|e| e.zone == net::Zone::Internet).collect();
+        if internet.is_empty() {
+            continue;
+        }
+        let countries = programs.entry(p.name.clone()).or_default();
+        for e in internet {
+            if let Some(g) = e.remote.parse().ok().and_then(crate::geo::lookup).filter(|g| !g.country_code.is_empty()) {
+                countries.insert(g.country_code);
+            }
+        }
+    }
     Observation {
+        programs,
+        attached: found.iter().map(|n| format!("dem Netz {} (Router {})", n.subnet, n.gateway.clone().unwrap_or_else(|| "unbekannt".into()))).collect(),
+        firewall_active,
         // An accepted finding is no longer urgent.
         findings: report
             .findings
@@ -132,7 +215,7 @@ fn observe(report: &Report, snap: &net::NetSnapshot, sweep: bool) -> Observation
         ports: snap.exposed().iter().map(|l| (format!("{}/{}", l.proto, l.port), l.who())).collect(),
         // Devices are only watched on networks the user has searched before: there a
         // periodic search is welcome, and without one the list is too patchy to alert on.
-        networks: devices::discover_with(if sweep { devices::Mode::ActiveKnown } else { devices::Mode::Passive })
+        networks: found
             .into_iter()
             .filter(|n| n.inventoried)
             .map(|n| {
@@ -177,7 +260,8 @@ pub fn run_once(send_notifications: bool) -> Vec<Event> {
     history::record(&snap);
 
     let sweep = now.saturating_sub(prev.last_sweep) > 3600;
-    let (mut new_events, mut state) = diff(&prev, &observe(&report, &snap, sweep), now);
+    let firewall_active = crate::fwctl::state(privileged::load().as_ref()).active;
+    let (mut new_events, mut state) = diff(&prev, &observe(&report, &snap, sweep, firewall_active), now);
     if sweep {
         state.last_sweep = now;
     }
@@ -262,7 +346,37 @@ mod tests {
             findings: findings.iter().map(|(id, s)| (id.to_string(), *s, format!("Titel {id}"), "Text".to_string())).collect(),
             ports: ports.iter().map(|p| (p.to_string(), "prog".to_string())).collect(),
             networks: vec![("192.168.1.0/24 via 192.168.1.1".into(), devices.iter().map(|m| (m.to_string(), format!("Gerät {m}"))).collect())],
+            programs: BTreeMap::new(),
+            attached: vec![],
+            firewall_active: true,
         }
+    }
+
+    #[test]
+    fn reports_first_contacts() {
+        let with = |programs: &[(&str, &[&str])], nets: &[&str], fw: bool| {
+            let mut o = obs(&[], &[], &[]);
+            o.programs = programs.iter().map(|(p, c)| (p.to_string(), c.iter().map(|x| x.to_string()).collect())).collect();
+            o.attached = nets.iter().map(|n| n.to_string()).collect();
+            o.firewall_active = fw;
+            o
+        };
+        // The first round is the baseline.
+        let (events, base) = diff(&State::default(), &with(&[("browser", &["DE", "US"])], &["Heimnetz"], true), 1);
+        assert!(events.is_empty());
+        // A new program, a new country, a new network with the firewall off.
+        let (events, state) = diff(&base, &with(&[("browser", &["DE", "CN"]), ("updater", &["US"])], &["Heimnetz", "Café"], false), 2);
+        let seen: Vec<(&str, &str)> = events.iter().map(|e| (e.level.as_str(), e.title.as_str())).collect();
+        assert_eq!(seen, [("info", "Neues Zielland"), ("warn", "Neues Programm im Internet"), ("warn", "Neues Netzwerk")]);
+        assert!(events[0].text.contains("browser") && events[0].text.contains("CN"));
+        assert!(events[2].text.contains("AUS"));
+        // Known from then on, even when a program is not running at the moment.
+        let (events, state) = diff(&state, &with(&[("updater", &["US"])], &["Café"], true), 3);
+        assert!(events.is_empty());
+        assert!(diff(&state, &with(&[("browser", &["CN"])], &["Heimnetz"], true), 4).0.is_empty());
+        // State from before this feature existed: baseline, no burst of alerts.
+        let old = State { ports: Some(BTreeSet::new()), ..Default::default() };
+        assert!(diff(&old, &with(&[("browser", &["DE"])], &["Heimnetz"], false), 5).0.is_empty());
     }
 
     #[test]

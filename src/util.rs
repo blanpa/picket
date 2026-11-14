@@ -16,7 +16,7 @@ pub struct Out {
 
 /// Tools are only looked up in system directories, never via $PATH, so a
 /// planted binary earlier in the user's PATH cannot fake the results.
-const BIN_DIRS: [&str; 5] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin", "/snap/bin"];
+const BIN_DIRS: [&str; 7] = ["/usr/sbin", "/usr/bin", "/sbin", "/bin", "/snap/bin", "/usr/local/sbin", "/usr/local/bin"];
 
 pub fn which(name: &str) -> Option<PathBuf> {
     BIN_DIRS
@@ -35,8 +35,17 @@ pub fn run_localized(name: &str, args: &[&str], timeout_s: u64) -> Option<Out> {
     run_inner(name, args, timeout_s, false)
 }
 
+/// Run a program at a known path (for tools that live outside the system directories).
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub fn run_at(path: &Path, args: &[&str], timeout_s: u64) -> Option<Out> {
+    run_bin(path.to_path_buf(), args, timeout_s, true)
+}
+
 fn run_inner(name: &str, args: &[&str], timeout_s: u64, c_locale: bool) -> Option<Out> {
-    let bin = which(name)?;
+    run_bin(which(name)?, args, timeout_s, c_locale)
+}
+
+fn run_bin(bin: PathBuf, args: &[&str], timeout_s: u64, c_locale: bool) -> Option<Out> {
     let mut cmd = Command::new(bin);
     cmd.args(args)
         .stdin(Stdio::null())

@@ -538,6 +538,30 @@ pub fn service_name(port: u16) -> Option<&'static str> {
     })
 }
 
+/// Total bytes (received, sent) over the real network interfaces, from /proc/net/dev.
+/// Unlike the per-connection counters this includes UDP/QUIC and very short connections.
+pub fn parse_interface_totals(proc_net_dev: &str) -> (u64, u64) {
+    let (mut rx, mut tx) = (0u64, 0u64);
+    for line in proc_net_dev.lines() {
+        let Some((name, rest)) = line.split_once(':') else { continue };
+        // Loopback and container bridges would count local traffic twice.
+        if !matches!(iface_kind(name.trim()), Zone::Lan | Zone::Vpn) {
+            continue;
+        }
+        let fields: Vec<u64> = rest.split_whitespace().filter_map(|f| f.parse().ok()).collect();
+        if fields.len() >= 9 {
+            rx += fields[0];
+            tx += fields[8];
+        }
+    }
+    (rx, tx)
+}
+
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub fn interface_totals() -> (u64, u64) {
+    parse_interface_totals(&std::fs::read_to_string("/proc/net/dev").unwrap_or_default())
+}
+
 /// Reverse DNS lookup through the system resolver.
 pub fn reverse_lookup(ip: IpAddr) -> Option<String> {
     util::run("getent", &["hosts", &ip.to_string()], 3)
@@ -550,6 +574,9 @@ pub fn reverse_lookup(ip: IpAddr) -> Option<String> {
 type ConnKey = (String, String, String, String, String);
 
 pub fn snapshot(privd: Option<&Privileged>) -> NetSnapshot {
+    if crate::demo::enabled() {
+        return crate::demo::snapshot();
+    }
     let ifaces = read_ifaces();
     let (docker, docker_available) = docker_published();
     let listen_out = util::run("ss", &["-H", "-tulnp"], 6);
@@ -839,6 +866,17 @@ tcp LISTEN 0 511 [::]:1890 [::]:* users:((\"Web Content\",pid=7,fd=3),(\"x\",pid
         assert_eq!((s[0].bytes_sent, s[0].bytes_received), (2124181, 33124107));
         assert_eq!((s[1].bytes_sent, s[1].bytes_received), (0, 0));
         assert_eq!(s[1].rport, "67");
+    }
+
+    #[test]
+    fn sums_real_interfaces_only() {
+        let dev = "Inter-|   Receive                                                |  Transmit\n \
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n\
+    lo: 83554485  138930    0    0    0     0          0         0 83554485  138930    0    0    0     0       0          0\n\
+wlp170s0: 1000 10 0 0 0 0 0 0 200 5 0 0 0 0 0 0\n\
+docker0: 5000 10 0 0 0 0 0 0 6000 5 0 0 0 0 0 0\n\
+tailscale0: 30 1 0 0 0 0 0 0 4 1 0 0 0 0 0 0\n";
+        assert_eq!(parse_interface_totals(dev), (1030, 204));
     }
 
     #[test]

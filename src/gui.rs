@@ -349,6 +349,8 @@ fn capture_row(
         .map(|s| format!("{s}.{:03}", ((p.time - secs) * 1000.0) as u32))
         .unwrap_or_default();
     Some(CapRow {
+        remote_ip: remote_ip.map(|i| i.to_string()).unwrap_or_default(),
+        length: p.length,
         time,
         direction: if outgoing { "→" } else { "←" },
         program: ports.get(&format!("{}/{local_port}", p.transport)).cloned().unwrap_or_default(),
@@ -372,6 +374,7 @@ struct NetView {
     tabs: gtk::Stack,
     /// Everything seen since the window opened, including closed connections.
     session: RefCell<Session>,
+    traffic: graph::Throughput,
     /// How long closed connections stay visible.
     keep: adw::ComboRow,
     ticks: Cell<u32>,
@@ -398,6 +401,9 @@ struct FwView {
     add: gtk::Button,
     rules: adw::PreferencesGroup,
     rule_rows: RefCell<Vec<gtk::Widget>>,
+    domains: adw::PreferencesGroup,
+    domain_entry: adw::EntryRow,
+    domain_rows: RefCell<Vec<gtk::Widget>>,
     state: RefCell<fwctl::State>,
     /// Set while the controls are being filled in, so that does not count as a user change.
     updating: Cell<bool>,
@@ -413,7 +419,18 @@ struct DevView {
 }
 
 /// One line of the packet list.
+/// What was exchanged with one remote address during a capture.
+#[derive(Default)]
+struct Talk {
+    packets: u64,
+    bytes: u64,
+    protos: std::collections::BTreeSet<&'static str>,
+}
+
 struct CapRow {
+    /// Remote address without name or port, for the summary.
+    remote_ip: String,
+    length: u32,
     time: String,
     direction: &'static str,
     program: String,
@@ -444,6 +461,11 @@ struct CapView {
     block: gtk::Button,
     disconnect: gtk::Button,
     store: gio::ListStore,
+    search: gtk::SearchEntry,
+    talk: RefCell<HashMap<String, Talk>>,
+    talk_group: adw::PreferencesGroup,
+    talk_rows: RefCell<Vec<gtk::Widget>>,
+    talk_rendered: Cell<u64>,
     /// Closing this pipe tells the root helper to stop.
     stdin: RefCell<Option<std::process::ChildStdin>>,
     running: Cell<bool>,
@@ -464,6 +486,12 @@ struct DockerView {
     group: adw::PreferencesGroup,
     rows: RefCell<Vec<gtk::Widget>>,
     loading: Cell<bool>,
+    /// Distinct images of the running containers, for the vulnerability scan.
+    images: RefCell<Vec<String>>,
+    scan_button: gtk::Button,
+    scans: adw::PreferencesGroup,
+    scan_rows: RefCell<Vec<gtk::Widget>>,
+    scanning: Cell<bool>,
 }
 
 struct HistView {
@@ -667,6 +695,13 @@ impl Ui {
         // docker
         let docker_group = group("Laufende Container", Some("Aufklappen zeigt die Ports. Offene Ports lassen sich mit der angezeigten Zeile auf den Laptop beschränken."));
         pages["docker"].append(&docker_group);
+        let docker_scans = group(
+            "Bekannte Lücken in den Images",
+            Some("Prüft die Images der laufenden Container mit Trivy auf bekannte Lücken (kritisch und hoch). Der erste Lauf lädt die Lücken-Datenbank."),
+        );
+        let docker_scan_button = gtk::Button::builder().label("Images prüfen").valign(gtk::Align::Center).build();
+        docker_scans.set_header_suffix(Some(&docker_scan_button));
+        pages["docker"].append(&docker_scans);
 
         // history
         let histp = pages["history"].clone();
@@ -729,6 +764,15 @@ impl Ui {
         fw_add.add_css_class("flat");
         fw_rules.set_header_suffix(Some(&fw_add));
         fwp.append(&fw_rules);
+        let fw_domains = group(
+            "Gesperrte Domains",
+            Some("Trägt den Namen in /etc/hosts ein; Programme auf diesem Laptop erreichen ihn dann nicht mehr. Gilt für genau diesen Namen (Unterdomains einzeln) und nicht für Programme mit eigenem verschlüsseltem DNS, etwa Browser mit „sicherem DNS“."),
+        );
+        let fw_domain_entry = adw::EntryRow::new();
+        fw_domain_entry.set_title("Domain sperren, z. B. tracker.example.com");
+        fw_domain_entry.set_show_apply_button(true);
+        fw_domains.add(&fw_domain_entry);
+        fwp.append(&fw_domains);
 
         // devices
         let devp = pages["devices"].clone();
@@ -789,7 +833,29 @@ impl Ui {
         capp.append(&cap_actions);
 
         let cap_store = gio::ListStore::new::<glib::BoxedAnyObject>();
-        let cap_view = gtk::ColumnView::new(Some(gtk::NoSelection::new(Some(cap_store.clone()))));
+        // The search field narrows the list to rows that contain the text.
+        let cap_search = gtk::SearchEntry::builder().placeholder_text("Filtern: Name, Adresse, Protokoll …").width_request(280).valign(gtk::Align::Center).build();
+        let cap_filter = {
+            let search = cap_search.clone();
+            gtk::CustomFilter::new(move |obj| {
+                let query = search.text().to_lowercase();
+                if query.is_empty() {
+                    return true;
+                }
+                obj.downcast_ref::<glib::BoxedAnyObject>()
+                    .map(|o| {
+                        let r = o.borrow::<CapRow>();
+                        [r.program.as_str(), r.remote.as_str(), r.proto, r.info.as_str()].iter().any(|f| f.to_lowercase().contains(&query))
+                    })
+                    .unwrap_or(true)
+            })
+        };
+        {
+            let filter = cap_filter.clone();
+            cap_search.connect_search_changed(move |_| filter.changed(gtk::FilterChange::Different));
+        }
+        let cap_filtered = gtk::FilterListModel::new(Some(cap_store.clone()), Some(cap_filter));
+        let cap_view = gtk::ColumnView::new(Some(gtk::NoSelection::new(Some(cap_filtered))));
         cap_view.set_show_row_separators(true);
         let columns: [(&str, bool, i32, fn(&CapRow) -> String); 7] = [
             ("Zeit", false, 105, |r| r.time.clone()),
@@ -828,7 +894,11 @@ impl Ui {
         let cap_scroller = gtk::ScrolledWindow::builder().min_content_height(440).child(&cap_view).build();
         let cap_frame = gtk::Frame::new(None);
         cap_frame.set_child(Some(&cap_scroller));
+        let cap_talk = group("Wer mit wem", Some("Die Gegenstellen dieses Mitschnitts nach Datenmenge."));
+        cap_talk.set_visible(false);
+        capp.append(&cap_talk);
         let cap_list_group = group("Pakete", Some("Neueste zuerst. → von diesem Laptop, ← zu diesem Laptop."));
+        cap_list_group.set_header_suffix(Some(&cap_search));
         cap_list_group.add(&cap_frame);
         capp.append(&cap_list_group);
         let cap_file = std::env::var_os("XDG_CACHE_HOME")
@@ -858,6 +928,17 @@ impl Ui {
         zones_group.set_header_suffix(Some(&net_stamp));
         zones_group.add(&zone_cards);
         netp.append(&zones_group);
+        // Total throughput from the kernel's interface counters: includes UDP/QUIC,
+        // which the per-connection counters cannot see.
+        let traffic = graph::Throughput::new();
+        let traffic_card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        traffic_card.add_css_class("card");
+        traffic.area.set_margin_top(10);
+        traffic.area.set_margin_bottom(8);
+        traffic.area.set_margin_start(14);
+        traffic.area.set_margin_end(14);
+        traffic_card.append(&traffic.area);
+        netp.append(&traffic_card);
 
         let graph = graph::Graph::new();
         let graph_group = group(
@@ -994,6 +1075,7 @@ impl Ui {
                 zone: Cell::new(None),
                 tabs: net_tabs,
                 session: RefCell::new(Session::default()),
+                traffic,
                 keep,
                 ticks: Cell::new(0),
                 show_local,
@@ -1014,6 +1096,9 @@ impl Ui {
                 toggle: fw_toggle,
                 policy: fw_policy,
                 add: fw_add,
+                domains: fw_domains,
+                domain_entry: fw_domain_entry,
+                domain_rows: RefCell::new(Vec::new()),
                 rules: fw_rules,
                 rule_rows: RefCell::new(Vec::new()),
                 state: RefCell::new(fwctl::State::default()),
@@ -1028,7 +1113,16 @@ impl Ui {
                 loaded: Cell::new(false),
             },
             extras: Extras { watch: watch_row, geo: geo_row, blocklist: block_row, updating: Cell::new(false) },
-            docker: DockerView { group: docker_group, rows: RefCell::new(Vec::new()), loading: Cell::new(false) },
+            docker: DockerView {
+                group: docker_group,
+                rows: RefCell::new(Vec::new()),
+                loading: Cell::new(false),
+                images: RefCell::new(Vec::new()),
+                scan_button: docker_scan_button,
+                scans: docker_scans,
+                scan_rows: RefCell::new(Vec::new()),
+                scanning: Cell::new(false),
+            },
             hist: HistView {
                 events: hist_events,
                 conns: hist_conns,
@@ -1061,6 +1155,11 @@ impl Ui {
                 block: cap_block,
                 disconnect: cap_disconnect,
                 store: cap_store,
+                search: cap_search,
+                talk: RefCell::new(HashMap::new()),
+                talk_group: cap_talk,
+                talk_rows: RefCell::new(Vec::new()),
+                talk_rendered: Cell::new(0),
                 stdin: RefCell::new(None),
                 running: Cell::new(false),
                 packets: Cell::new(0),
@@ -1347,6 +1446,23 @@ impl Ui {
         }
         {
             let ui2 = ui.clone();
+            ui.fw.domain_entry.connect_apply(move |entry| {
+                let domain = entry.text().trim().trim_end_matches('.').to_lowercase();
+                ui2.fw_confirm(
+                    fwctl::Op::BlockDomain { domain: domain.clone(), block: true },
+                    "Domain sperren?",
+                    &format!("Programme auf diesem Laptop erreichen {domain} danach nicht mehr."),
+                    false,
+                );
+                entry.set_text("");
+            });
+        }
+        {
+            let ui2 = ui.clone();
+            ui.docker.scan_button.connect_clicked(move |_| ui2.scan_images());
+        }
+        {
+            let ui2 = ui.clone();
             ui.scan.target.connect_selected_notify(move |row| {
                 if let Some(t) = ui2.scan.targets.get(row.selected() as usize) {
                     row.set_subtitle(&t.path);
@@ -1389,6 +1505,23 @@ impl Ui {
             style.connect_dark_notify(apply);
         }
         {
+            // One throughput sample per second, so the chart has history when the page is opened.
+            let weak = Rc::downgrade(&ui);
+            let last = Cell::new((net::interface_totals(), std::time::Instant::now()));
+            glib::timeout_add_seconds_local(1, move || {
+                let Some(ui) = weak.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                let ((rx0, tx0), t0) = last.get();
+                let (now, (rx, tx)) = (std::time::Instant::now(), net::interface_totals());
+                let dt = now.duration_since(t0).as_secs_f64().max(0.2);
+                // An interface that disappears lowers the sum; that is not traffic.
+                ui.net.traffic.push(rx.saturating_sub(rx0) as f64 / dt, tx.saturating_sub(tx0) as f64 / dt);
+                last.set(((rx, tx), now));
+                glib::ControlFlow::Continue
+            });
+        }
+        {
             // Live network refresh while the network page is visible.
             let weak = Rc::downgrade(&ui);
             glib::timeout_add_seconds_local(5, move || {
@@ -1414,7 +1547,9 @@ impl Ui {
     fn screenshot_tour(self: &Rc<Self>, prefix: String) {
         let ui = self.clone();
         let step = Cell::new(0usize);
-        glib::timeout_add_seconds_local(3, move || {
+        let retries = Cell::new(0u32);
+        // Not a whole number of seconds, so a retry does not land on the same beat as the one-second timers.
+        glib::timeout_add_local(Duration::from_millis(2900), move || {
             let i = step.get();
             if (1..=PAGES.len()).contains(&i) {
                 let name = PAGES[i - 1].0;
@@ -1423,9 +1558,21 @@ impl Ui {
                 let snapshot = gtk::Snapshot::new();
                 paintable.snapshot(&snapshot, f64::from(ui.window.width()), f64::from(ui.window.height()));
                 let renderer = ui.window.native().and_then(|n| n.renderer());
-                if let (Some(node), Some(renderer)) = (snapshot.to_node(), renderer) {
-                    let _ = renderer.render_texture(&node, None).save_to_png(format!("{prefix}-{name}.png"));
+                match (snapshot.to_node(), renderer) {
+                    (Some(node), Some(renderer)) => {
+                        if let Err(e) = renderer.render_texture(&node, None).save_to_png(format!("{prefix}-{name}.png")) {
+                            eprintln!("[tour] {name}: {e}");
+                        }
+                    }
+                    // The window is between two layouts (something just changed size):
+                    // stay on this page and try again at the next tick.
+                    _ if retries.get() < 5 => {
+                        retries.set(retries.get() + 1);
+                        return glib::ControlFlow::Continue;
+                    }
+                    _ => eprintln!("[tour] {name}: kein Bild – die Seite ordnet sich dauernd neu an"),
                 }
+                retries.set(0);
             }
             if i == PAGES.len() && std::env::var_os("PICKET_SHOT_DIALOG").is_some() {
                 // One extra picture: the rule form, opened for an example port.
@@ -1617,6 +1764,10 @@ impl Ui {
 
     /// Run `then` once the root helper is installed and current; offer the one-time setup otherwise.
     fn with_helper(self: &Rc<Self>, then: Rc<dyn Fn(&Rc<Ui>)>) {
+        if crate::demo::enabled() {
+            self.toast("Demo-Modus: Hier wird nichts am System geändert.");
+            return;
+        }
         let problem = match helper::ready() {
             Ok(()) => return then(self),
             Err(e) => e,
@@ -1760,6 +1911,33 @@ impl Ui {
         }
         *fv.rule_rows.borrow_mut() = rows;
         *fv.state.borrow_mut() = st;
+
+        for w in fv.domain_rows.borrow_mut().drain(..) {
+            fv.domains.remove(&w);
+        }
+        let mut rows: Vec<gtk::Widget> = Vec::new();
+        for domain in fwctl::blocked_domains() {
+            let row = info_row(&domain, "gesperrt über /etc/hosts");
+            let btn = gtk::Button::from_icon_name("user-trash-symbolic");
+            btn.add_css_class("flat");
+            btn.set_valign(gtk::Align::Center);
+            btn.set_tooltip_text(Some("Wieder freigeben"));
+            let (weak, d) = (Rc::downgrade(self), domain.clone());
+            btn.connect_clicked(move |_| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.fw_confirm(
+                        fwctl::Op::BlockDomain { domain: d.clone(), block: false },
+                        "Domain wieder freigeben?",
+                        &format!("{d} ist danach wieder erreichbar."),
+                        false,
+                    );
+                }
+            });
+            row.add_suffix(&btn);
+            fv.domains.add(&row);
+            rows.push(row.upcast());
+        }
+        *fv.domain_rows.borrow_mut() = rows;
     }
 
     fn fw_confirm(self: &Rc<Self>, op: fwctl::Op, heading: &str, body: &str, destructive: bool) {
@@ -2472,6 +2650,10 @@ impl Ui {
 
     /// Show what the fix for a finding does, then run it (through pkexec when it needs root).
     fn confirm_fix(self: &Rc<Self>, id: &str) {
+        if crate::demo::enabled() {
+            self.toast("Demo-Modus: Hier wird nichts am System geändert.");
+            return;
+        }
         if id == "fw.active" {
             self.fw.toggle.emit_clicked(); // same dialog as on the firewall page
             return;
@@ -2556,6 +2738,10 @@ impl Ui {
                 None => rows.push(info_row("Docker ist nicht installiert oder nicht zugänglich", "").upcast()),
                 Some(l) if l.is_empty() => rows.push(info_row("Es läuft kein Container", "").upcast()),
                 Some(containers) => {
+                    let mut images: Vec<String> = containers.iter().map(|c| c.image.clone()).collect();
+                    images.sort();
+                    images.dedup();
+                    *dv.images.borrow_mut() = images;
                     for c in containers {
                         let row = adw::ExpanderRow::new();
                         row.set_use_markup(false);
@@ -2597,6 +2783,18 @@ impl Ui {
                                     toasts.add_toast(adw::Toast::new("Zeile kopiert – in der Compose-Datei unter „ports:“ einsetzen"));
                                 });
                                 child.add_suffix(&btn);
+                                if c.compose_file.ends_with(".yml") || c.compose_file.ends_with(".yaml") {
+                                    let fix = gtk::Button::with_label("Beschränken …");
+                                    fix.set_valign(gtk::Align::Center);
+                                    fix.set_tooltip_text(Some("Ändert die Compose-Datei so, dass der Port nur noch auf diesem Laptop erreichbar ist"));
+                                    let (weak, file, port) = (Rc::downgrade(&ui), c.compose_file.clone(), p.container_port.clone());
+                                    fix.connect_clicked(move |_| {
+                                        if let Some(ui) = weak.upgrade() {
+                                            ui.confirm_restrict(&file, &port);
+                                        }
+                                    });
+                                    child.add_suffix(&fix);
+                                }
                             }
                             row.add_row(&child);
                         }
@@ -2615,6 +2813,167 @@ impl Ui {
             }
             *dv.rows.borrow_mut() = rows;
         });
+    }
+
+
+    // --------------------------------------- docker: restrict, image scan
+
+    /// Show the exact change to the compose file, then apply it and recreate the container.
+    fn confirm_restrict(self: &Rc<Self>, compose_file: &str, container_port: &str) {
+        if crate::demo::enabled() {
+            self.toast("Demo-Modus: Hier wird nichts am System geändert.");
+            return;
+        }
+        let changes = std::fs::read_to_string(compose_file).ok().and_then(|t| docker::bind_local(&t, container_port));
+        let Some((_, changes)) = changes else {
+            self.toast("In der Compose-Datei steht keine Port-Zeile, die sich automatisch ändern lässt.");
+            return;
+        };
+        let diff: Vec<String> = changes.iter().map(|(old, new)| format!("{old}\nwird zu\n{new}")).collect();
+        let dialog = adw::AlertDialog::new(
+            Some("Port auf diesen Laptop beschränken?"),
+            Some(&format!(
+                "In {compose_file}:\n\n{}\n\nDanach läuft „docker compose up -d“; der Container startet dabei kurz neu. \
+                 Der Dienst ist anschließend nur noch von diesem Laptop aus erreichbar. \
+                 Die bisherige Datei bleibt als {compose_file}.picket-sicherung erhalten.",
+                diff.join("\n\n")
+            )),
+        );
+        dialog.add_response("cancel", "Abbrechen");
+        dialog.add_response("apply", "Ändern und neu starten");
+        dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let (ui, file, port) = (self.clone(), compose_file.to_string(), container_port.to_string());
+        dialog.connect_response(None, move |_, response| {
+            if response != "apply" {
+                return;
+            }
+            ui.toast("Container wird neu gestartet …");
+            let (ui, file, port) = (ui.clone(), file.clone(), port.clone());
+            glib::spawn_future_local(async move {
+                let result = gio::spawn_blocking(move || docker::restrict_port(&file, &port)).await.unwrap_or_else(|_| Err("Abbruch".into()));
+                match result {
+                    Ok(msg) => ui.toast(&msg),
+                    Err(e) => {
+                        let dialog = adw::AlertDialog::new(Some("Das hat nicht geklappt"), Some(&e));
+                        dialog.add_response("ok", "Schließen");
+                        dialog.present(Some(&ui.window));
+                    }
+                }
+                ui.refresh();
+            });
+        });
+        dialog.present(Some(&self.window));
+    }
+
+    /// Scan the images of the running containers with Trivy, one after the other.
+    fn scan_images(self: &Rc<Self>) {
+        let dv = &self.docker;
+        if !docker::trivy_available() {
+            let dialog = adw::AlertDialog::new(
+                Some("Trivy ist nicht installiert"),
+                Some("Die Prüfung nutzt das freie Werkzeug Trivy. Installieren mit Homebrew:\n\nbrew install trivy\n\nOder über die Paketquelle des Herstellers, siehe trivy.dev (Installation)."),
+            );
+            dialog.add_response("ok", "Schließen");
+            dialog.present(Some(&self.window));
+            return;
+        }
+        let images = dv.images.borrow().clone();
+        if images.is_empty() || dv.scanning.replace(true) {
+            return;
+        }
+        dv.scan_button.set_sensitive(false);
+        for w in dv.scan_rows.borrow_mut().drain(..) {
+            dv.scans.remove(&w);
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<Result<docker::ImageScan, (String, String)>>();
+        std::thread::spawn(move || {
+            for image in images {
+                if tx.send(docker::scan_image(&image).map_err(|e| (image.clone(), e))).is_err() {
+                    break;
+                }
+            }
+        });
+        let ui = self.clone();
+        glib::timeout_add_local(Duration::from_millis(400), move || {
+            let dv = &ui.docker;
+            loop {
+                match rx.try_recv() {
+                    Ok(result) => {
+                        let row = adw::ExpanderRow::new();
+                        row.set_use_markup(false);
+                        match result {
+                            Ok(scan) => {
+                                row.set_title(&scan.image);
+                                row.set_subtitle(&format!("{} kritisch · {} hoch", scan.critical, scan.high));
+                                let (label, css) = match (scan.critical, scan.high) {
+                                    (0, 0) => ("Keine", "success"),
+                                    (0, _) => ("Hoch", "warning"),
+                                    _ => ("Kritisch", "error"),
+                                };
+                                row.add_suffix(&tag(label, css));
+                                if scan.examples.is_empty() {
+                                    row.set_enable_expansion(false);
+                                } else {
+                                    row.add_row(&text_row(&scan.examples.join("\n"), &["monospace", "caption"], true));
+                                    row.add_row(&text_row("Empfehlung: ein neueres Image ziehen (docker compose pull && docker compose up -d) oder das Image neu bauen.", &["heading"], false));
+                                }
+                            }
+                            Err((image, e)) => {
+                                row.set_title(&image);
+                                row.set_subtitle(&e);
+                                row.set_enable_expansion(false);
+                            }
+                        }
+                        dv.scans.add(&row);
+                        dv.scan_rows.borrow_mut().push(row.upcast());
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => return glib::ControlFlow::Continue,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        dv.scanning.set(false);
+                        dv.scan_button.set_sensitive(true);
+                        return glib::ControlFlow::Break;
+                    }
+                }
+            }
+        });
+    }
+
+    /// The busiest remote addresses of the running capture.
+    fn render_talk(&self) {
+        let cv = &self.cap;
+        for w in cv.talk_rows.borrow_mut().drain(..) {
+            cv.talk_group.remove(&w);
+        }
+        let talk = cv.talk.borrow();
+        let names = cv.names.borrow();
+        let mut top: Vec<(&String, &Talk)> = talk.iter().collect();
+        top.sort_by(|a, b| b.1.bytes.cmp(&a.1.bytes).then(a.0.cmp(b.0)));
+        cv.talk_group.set_visible(!top.is_empty());
+        let mut rows: Vec<gtk::Widget> = Vec::new();
+        for (ip, t) in top.into_iter().take(8) {
+            let name = ip.parse::<IpAddr>().ok().and_then(|a| names.get(&a).cloned());
+            let mut info: Vec<String> = Vec::new();
+            if name.is_some() {
+                info.push(ip.clone());
+            }
+            info.extend(ip.parse().ok().and_then(geo::lookup).map(|g| g.short()));
+            info.push(format!("{} Pakete", t.packets));
+            info.push(t.protos.iter().copied().collect::<Vec<_>>().join(", "));
+            let row = info_row(name.as_deref().unwrap_or(ip), &info.join(" · "));
+            row.add_suffix(&gtk::Label::new(Some(&util::format_bytes(t.bytes))));
+            let btn = gtk::Button::with_label("Nur diese");
+            btn.add_css_class("flat");
+            btn.set_valign(gtk::Align::Center);
+            btn.set_tooltip_text(Some("Die Paketliste auf diese Gegenstelle einschränken"));
+            let (search, ip) = (cv.search.clone(), ip.clone());
+            btn.connect_clicked(move |_| search.set_text(&ip));
+            row.add_suffix(&btn);
+            cv.talk_group.add(&row);
+            rows.push(row.upcast());
+        }
+        *cv.talk_rows.borrow_mut() = rows;
     }
 
     // ----------------------------------------------------------- history
@@ -2960,6 +3319,7 @@ impl Ui {
             .collect();
 
         cv.store.remove_all();
+        cv.talk.borrow_mut().clear();
         cv.packets.set(0);
         cv.bytes.set(0);
         cv.running.set(true);
@@ -3023,6 +3383,13 @@ impl Ui {
                                 cv.names.borrow_mut().insert(*ip, name.clone());
                             }
                             if let Some(row) = capture_row(&p, &local, &ports, &cv.names.borrow()) {
+                                if !row.remote_ip.is_empty() {
+                                    let mut talk = cv.talk.borrow_mut();
+                                    let t = talk.entry(row.remote_ip.clone()).or_default();
+                                    t.packets += 1;
+                                    t.bytes += u64::from(row.length);
+                                    t.protos.insert(row.proto);
+                                }
                                 rows.push(glib::BoxedAnyObject::new(row));
                             }
                         }
@@ -3046,6 +3413,11 @@ impl Ui {
                 if n > CAPTURE_ROWS {
                     cv.store.splice(CAPTURE_ROWS, n - CAPTURE_ROWS, &[] as &[glib::BoxedAnyObject]);
                 }
+            }
+            // The summary changes with every packet; redrawing once a second is enough.
+            if done.is_some() || cv.talk_rendered.get() != util::now() {
+                cv.talk_rendered.set(util::now());
+                ui.render_talk();
             }
             let size = format!("{} Pakete · {} kB", cv.packets.get(), cv.bytes.get() / 1000);
             let Some((code, stderr, invalid)) = done else {

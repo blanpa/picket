@@ -6,7 +6,7 @@ use crate::net::{NetSnapshot, Zone};
 use gtk::prelude::*;
 use gtk::{cairo, glib, pango};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::f64::consts::PI;
 use std::rc::Rc;
 use std::time::Instant;
@@ -680,6 +680,96 @@ impl Graph {
         m.layout = layout;
         m.current = counters;
         drop(m);
+        self.area.queue_draw();
+    }
+}
+
+/// Overall network throughput of the last two minutes as a small chart.
+#[derive(Clone)]
+pub struct Throughput {
+    pub area: gtk::DrawingArea,
+    samples: Rc<RefCell<VecDeque<(f64, f64)>>>,
+}
+
+const SAMPLES: usize = 120;
+
+impl Throughput {
+    pub fn new() -> Throughput {
+        let area = gtk::DrawingArea::new();
+        area.set_content_height(84);
+        area.set_hexpand(true);
+        let samples: Rc<RefCell<VecDeque<(f64, f64)>>> = Rc::new(RefCell::new(VecDeque::new()));
+        let s = samples.clone();
+        area.set_draw_func(move |area, cr, width, height| {
+            let (w, h) = (f64::from(width), f64::from(height));
+            let fg = area.color();
+            let (fr, fgg, fb) = (f64::from(fg.red()), f64::from(fg.green()), f64::from(fg.blue()));
+            let dark = fr + fgg + fb > 1.5;
+            let down = if dark { (0.60, 0.76, 0.95) } else { (0.11, 0.44, 0.85) };
+            let up = if dark { (1.0, 0.75, 0.44) } else { (0.78, 0.33, 0.0) };
+            let samples = s.borrow();
+            let (now_down, now_up) = samples.back().copied().unwrap_or((0.0, 0.0));
+            let peak = samples.iter().map(|(d, u)| d.max(*u)).fold(0.0, f64::max);
+            let scale = peak.max(10_000.0); // at least 10 kB/s, so idle noise stays flat
+            let top = 22.0;
+            let y_of = |v: f64| h - 2.0 - (v / scale) * (h - top - 4.0);
+            let x_of = |i: usize| w - (samples.len() - 1 - i) as f64 * (w / (SAMPLES - 1) as f64);
+
+            // baseline
+            cr.set_source_rgba(fr, fgg, fb, 0.12);
+            cr.set_line_width(1.0);
+            cr.move_to(0.0, h - 1.5);
+            cr.line_to(w, h - 1.5);
+            let _ = cr.stroke();
+            if samples.len() > 1 {
+                // received: filled area
+                cr.move_to(x_of(0), h - 2.0);
+                for (i, (d, _)) in samples.iter().enumerate() {
+                    cr.line_to(x_of(i), y_of(*d));
+                }
+                cr.line_to(w, h - 2.0);
+                cr.close_path();
+                cr.set_source_rgba(down.0, down.1, down.2, 0.22);
+                let _ = cr.fill();
+                for (color, pick) in [(down, 0usize), (up, 1usize)] {
+                    for (i, s) in samples.iter().enumerate() {
+                        let y = y_of(if pick == 0 { s.0 } else { s.1 });
+                        if i == 0 {
+                            cr.move_to(x_of(i), y);
+                        } else {
+                            cr.line_to(x_of(i), y);
+                        }
+                    }
+                    cr.set_source_rgba(color.0, color.1, color.2, 0.95);
+                    cr.set_line_width(1.8);
+                    let _ = cr.stroke();
+                }
+            }
+            cr.set_source_rgba(down.0, down.1, down.2, 1.0);
+            text(area, cr, &format!("<b>↓ {}</b>", format_rate(now_down)), 0.0, 0.0, 130.0);
+            cr.set_source_rgba(up.0, up.1, up.2, 1.0);
+            text(area, cr, &format!("<b>↑ {}</b>", format_rate(now_up)), 130.0, 0.0, 130.0);
+            cr.set_source_rgba(fr, fgg, fb, 0.6);
+            text(
+                area,
+                cr,
+                &format!("<span size='small'>gesamter Verkehr, letzte 2 Minuten · Spitze {}</span>", format_rate(peak)),
+                270.0,
+                1.0,
+                (w - 270.0).max(1.0),
+            );
+        });
+        Throughput { area, samples }
+    }
+
+    /// Add the rates (bytes per second) of the last second.
+    pub fn push(&self, down: f64, up: f64) {
+        let mut s = self.samples.borrow_mut();
+        s.push_back((down, up));
+        while s.len() > SAMPLES {
+            s.pop_front();
+        }
+        drop(s);
         self.area.queue_draw();
     }
 }

@@ -21,6 +21,8 @@ pub enum Op {
     Add(RuleSpec),
     /// Delete an existing rule, given as printed by `ufw show added` (without the leading "ufw").
     Delete { rule: String },
+    /// Make a host name unreachable for programs on this laptop (entry in /etc/hosts), or allow it again.
+    BlockDomain { domain: String, block: bool },
     /// Close the existing connections to an address right now (`ss -K`). A firewall
     /// rule alone does not do that: established connections stay allowed.
     Drop {
@@ -31,13 +33,101 @@ pub enum Op {
 }
 
 impl Op {
-    /// The system tool that carries out the request.
+    /// The system tool that carries out the request ("hosts": /etc/hosts is edited directly).
     pub fn program(&self) -> &'static str {
         match self {
             Op::Drop { .. } => "ss",
+            Op::BlockDomain { .. } => "hosts",
             _ => "ufw",
         }
     }
+}
+
+const HOSTS: &str = "/etc/hosts";
+const HOSTS_BEGIN: &str = "# BEGIN picket: gesperrte Domains";
+const HOSTS_END: &str = "# END picket";
+
+/// A plain host name such as "tracker.example.com": nothing that could smuggle a second entry into /etc/hosts.
+pub fn valid_domain(d: &str) -> bool {
+    d.len() <= 253
+        && d.contains('.')
+        && d.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && label.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+        })
+}
+
+/// Domains in Picket's section of a hosts file.
+pub fn hosts_blocked(text: &str) -> Vec<String> {
+    let mut inside = false;
+    let mut out: Vec<String> = Vec::new();
+    for l in text.lines() {
+        match l.trim() {
+            HOSTS_BEGIN => inside = true,
+            HOSTS_END => inside = false,
+            entry if inside => {
+                if let Some(d) = entry.strip_prefix("0.0.0.0 ") {
+                    out.push(d.trim().to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The hosts file with a domain added to or removed from Picket's section; everything else stays untouched.
+pub fn hosts_edit(text: &str, domain: &str, block: bool) -> String {
+    let mut domains = hosts_blocked(text);
+    domains.retain(|d| d != domain);
+    if block {
+        domains.push(domain.to_string());
+    }
+    domains.sort();
+    // Everything outside our section, unchanged.
+    let mut inside = false;
+    let mut out: Vec<&str> = Vec::new();
+    for l in text.lines() {
+        match l.trim() {
+            HOSTS_BEGIN => inside = true,
+            HOSTS_END => inside = false,
+            _ if !inside => out.push(l),
+            _ => {}
+        }
+    }
+    while out.last().map(|l| l.trim().is_empty()).unwrap_or(false) {
+        out.pop();
+    }
+    let mut result = out.join("\n");
+    result.push('\n');
+    if !domains.is_empty() {
+        result.push_str(&format!("\n{HOSTS_BEGIN}\n"));
+        for d in &domains {
+            result.push_str(&format!("0.0.0.0 {d}\n:: {d}\n"));
+        }
+        result.push_str(&format!("{HOSTS_END}\n"));
+    }
+    result
+}
+
+/// Domains currently blocked through /etc/hosts (readable without root).
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub fn blocked_domains() -> Vec<String> {
+    if crate::demo::enabled() {
+        return crate::demo::blocked_domains();
+    }
+    hosts_blocked(&std::fs::read_to_string(HOSTS).unwrap_or_default())
+}
+
+fn write_hosts(domain: &str, block: bool) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let text = std::fs::read_to_string(HOSTS).map_err(|e| format!("{HOSTS}: {e}"))?;
+    let tmp = format!("{HOSTS}.picket-tmp");
+    std::fs::write(&tmp, hosts_edit(&text, domain, block)).map_err(|e| format!("{tmp}: {e}"))?;
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, HOSTS).map_err(|e| format!("{HOSTS}: {e}"))
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -163,6 +253,12 @@ pub fn ufw_args(op: &Op) -> Result<Vec<String>, String> {
             }
             Ok(a)
         }
+        Op::BlockDomain { domain, block } => {
+            if !valid_domain(domain) {
+                return Err(format!("Kein gültiger Domain-Name: „{domain}“ (erwartet z. B. tracker.example.com, ohne https:// und Pfad)"));
+            }
+            Ok(s(&[if *block { "sperren" } else { "freigeben" }, domain]))
+        }
         Op::Drop { addr, port } => {
             let ip: IpAddr = addr.trim().parse().map_err(|_| format!("Ungültige Adresse: „{}“", addr.trim()))?;
             // ss wants IPv6 addresses in brackets.
@@ -196,6 +292,14 @@ pub fn ufw_args(op: &Op) -> Result<Vec<String>, String> {
 
 /// The command as the user would type it, for display before confirming.
 pub fn command_line(op: &Op) -> Result<String, String> {
+    if let Op::BlockDomain { domain, block } = op {
+        ufw_args(op)?;
+        return Ok(if *block {
+            format!("in /etc/hosts eintragen: 0.0.0.0 {domain} und :: {domain}")
+        } else {
+            format!("aus /etc/hosts entfernen: {domain}")
+        });
+    }
     Ok(ufw_args(op)?
         .iter()
         .map(|a| if a.contains(' ') { format!("'{a}'") } else { a.clone() })
@@ -415,6 +519,9 @@ fn policy_word(conf: &str, key: &str) -> String {
 
 /// Current firewall state from the config files plus the optional root snapshot.
 pub fn state(privd: Option<&Privileged>) -> State {
+    if crate::demo::enabled() {
+        return crate::demo::firewall();
+    }
     let live = privd
         .and_then(|p| p.ufw_status.as_ref())
         .map(|s| s.lines().any(|l| l.trim() == "Status: active"));
@@ -453,6 +560,10 @@ pub fn apply(ops: &[Op], dry_run: bool) -> Result<(), String> {
             if !parse_added(&added).iter().any(|r| strip_comment(&r.raw) == wanted) {
                 return Err(format!("Die Regel existiert nicht mehr: {wanted}"));
             }
+        }
+        if let Op::BlockDomain { domain, block } = op {
+            write_hosts(domain, *block)?;
+            continue;
         }
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
         let program = op.program();
@@ -573,6 +684,26 @@ mod tests {
         assert_eq!(verdict(&st, "tcp", 22, false), Verdict::Unknown);
         st.active = false;
         assert_eq!(verdict(&st, "tcp", 22, false), Verdict::Open);
+    }
+
+    #[test]
+    fn edits_only_its_own_section_of_the_hosts_file() {
+        let original = "127.0.0.1 localhost\n127.0.1.1 laptop\n\n# eigene Einträge\n10.0.0.5 nas\n";
+        let one = hosts_edit(original, "tracker.example.com", true);
+        assert!(one.starts_with(original.trim_end()));
+        assert_eq!(hosts_blocked(&one), ["tracker.example.com"]);
+        assert!(one.contains("0.0.0.0 tracker.example.com\n:: tracker.example.com\n"));
+        let two = hosts_edit(&hosts_edit(&one, "ads.example.org", true), "tracker.example.com", true); // twice: no duplicate
+        assert_eq!(hosts_blocked(&two), ["ads.example.org", "tracker.example.com"]);
+        let back = hosts_edit(&hosts_edit(&two, "ads.example.org", false), "tracker.example.com", false);
+        assert_eq!(back, original); // nothing of ours is left behind
+
+        assert!(valid_domain("tracker.example.com") && valid_domain("a-b.example.de"));
+        for bad in ["localhost", "example.com evil.com", "exa mple.com", "-a.example.com", "example.com\n0.0.0.0 x", "https://example.com", "Example.com", ".example.com", ""] {
+            assert!(!valid_domain(bad), "{bad:?}");
+        }
+        assert!(ufw_args(&Op::BlockDomain { domain: "x.de\n127.0.0.1 bank.de".into(), block: true }).is_err());
+        assert_eq!(command_line(&Op::BlockDomain { domain: "ads.example.org".into(), block: false }).unwrap(), "aus /etc/hosts entfernen: ads.example.org");
     }
 
     #[test]

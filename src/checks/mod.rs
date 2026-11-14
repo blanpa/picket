@@ -79,6 +79,9 @@ pub fn build_report() -> Report {
 
 /// `light` skips the slow checks; the watcher uses that for its frequent rounds.
 pub fn build_report_opts(light: bool) -> Report {
+    if crate::demo::enabled() {
+        return crate::demo::report();
+    }
     let started = Instant::now();
     let privd = privileged::load();
     let net = crate::net::snapshot(privd.as_ref());

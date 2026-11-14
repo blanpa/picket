@@ -78,6 +78,23 @@ fn firewall_rule() -> Result<String, String> {
     ))
 }
 
+fn block_domain() -> Result<String, String> {
+    // ".invalid" is reserved (RFC 2606): this name exists nowhere.
+    let domain = "picket-selbsttest.invalid";
+    let resolves = || util::run("getent", &["hosts", domain], 5).map(|o| o.stdout).unwrap_or_default();
+    fwctl::apply(&[Op::BlockDomain { domain: domain.into(), block: true }], false)?;
+    let blocked = resolves();
+    fwctl::apply(&[Op::BlockDomain { domain: domain.into(), block: false }], false)?;
+    // getent answers with the IPv6 entry first: "::" is as good as "0.0.0.0".
+    if !matches!(blocked.split_whitespace().next(), Some("0.0.0.0" | "::")) {
+        return Err(format!("der Testname wurde nicht umgeleitet (Antwort: „{}“)", blocked.trim()));
+    }
+    if fwctl::blocked_domains().iter().any(|d| d == domain) || !resolves().trim().is_empty() {
+        return Err("der Testeintrag steht noch in /etc/hosts".into());
+    }
+    Ok("Testname gesperrt, Umleitung geprüft und Eintrag wieder entfernt".into())
+}
+
 fn close_connection() -> Result<String, String> {
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -170,6 +187,7 @@ pub fn run() -> bool {
     } else {
         println!("  –       Firewall-Regel: ufw ist nicht installiert");
     }
+    ok &= step("Domain sperren", block_domain());
     ok &= step("Verbindung trennen", close_connection());
     ok &= step("Mitschnitt", capture_loopback());
     ok &= step("Helfer", helper::ready().map(|_| format!("{} ist eingerichtet und aktuell", helper::PATH)));
