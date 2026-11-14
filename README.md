@@ -1,152 +1,154 @@
-# Picket
+<p align="center">
+  <img src="assets/icon.svg" width="112" alt="Picket logo: three fence pickets forming a shield">
+</p>
 
-Sicherheits-Check für den Linux-Laptop (entwickelt auf einem Framework-Laptop mit Ubuntu). Ein einzelnes Rust-Binary,
-das das System prüft und die Ergebnisse im Terminal oder in einem lokalen Dashboard zeigt.
+<h1 align="center">Picket</h1>
 
-**Die Prüfungen lesen nur.** Vorgeschlagene Befehle führst du selbst aus. Einzige Ausnahme: Firewall-Regeln,
-die du im App-Fenster setzt – dabei siehst du vorher den ufw-Befehl und bestätigst mit deinem Passwort.
+<p align="center">
+  A security check-up for your Linux laptop.<br>
+  Firewall, live connections, devices on the network, updates and system hardening in one native app.
+</p>
 
-## Benutzung
+![The Connections page: which program talks to which server](docs/screenshots/connections.png)
 
-```sh
-picket                 # App-Fenster (GTK4/libadwaita)
-picket install-desktop # Eintrag „Picket“ und Symbol ins App-Menü legen
-picket check           # Bericht im Terminal (Exit-Code 1 bei kritischen Befunden)
-picket check --all     # … mit allen Details
-picket net             # Was geht ins Internet, was bleibt im LAN, welche Ports sind offen
-picket devices         # Geräte im lokalen Netz (--scan spricht jede Adresse einmal an)
-picket scan ~/Downloads            # Virenscan mit ClamAV
-picket serve           # dieselbe Übersicht als Browser-Dashboard (nur 127.0.0.1, mit Token)
-sudo $(which picket) root-snapshot # Zusatzdaten, die nur root lesen kann
-```
+A *picket* is a forward guard post, and a stake in a fence. Picket stands watch over one machine: it tells
+you what is exposed, what is out of date and who your laptop is talking to, explains each finding in plain
+language, and lets you fix the common problems on the spot.
 
-In der App holt der Knopf „Freischalten“ die Root-Daten über den Passwortdialog des Systems (pkexec).
+It is a single Rust binary with a GTK4/libadwaita window, a terminal interface and a small local browser
+dashboard.
 
-### Root-Helfer
+> **Note:** the interface is in German. The code, comments and documentation are in English.
 
-Root-Aktionen (Firewall, Mitschnitt, Systemdaten, Root-Korrekturen) startet die App nicht aus `~/.cargo/bin` –
-diese Datei könnte jedes Programm unter deinem Konto austauschen. Stattdessen wird einmalig eine Kopie nach
-`/usr/local/libexec/picket-helper` installiert (gehört root) und eine polkit-Regel
-(`/usr/share/polkit-1/actions/io.github.blanpa.Picket.policy`) benennt genau diese Datei; die Passwortabfrage gilt
-dadurch einige Minuten. Der Helfer nimmt nur `root-snapshot`, `fw-apply`, `capture` und `fix` an.
+## What it does
 
-```sh
-sudo picket install-helper   # einmalig; die App bietet es beim ersten Bedarf auch an
-sudo picket selftest-root    # testet Snapshot, ufw-Regel, Verbindung trennen und Mitschnitt echt – ohne bleibende Änderung
-sudo picket remove-helper
-```
+- **Checks the machine.** Firewall state and rules, services reachable from the network, Docker containers,
+  antivirus, pending updates, disk encryption, Secure Boot, firmware, kernel hardening, accounts, SSH, backups.
+  Every finding says what was found, why it matters and what to do.
+- **Shows where connections go.** A live diagram links each program to the servers it talks to, grouped into
+  Internet, local network, VPN and containers, with country and operator. Connections that have closed stay
+  visible for a while instead of vanishing.
+- **Lists the devices on your network** with address, manufacturer and name, and can probe a device for
+  common services.
+- **Records packets.** A capture through `tcpdump` is decoded into readable lines (DNS names, TLS server
+  names, plain HTTP) and can be saved as `.pcap` for Wireshark.
+- **Lets you act.** Switch the firewall on, add and delete rules, block a host or a domain, close a
+  connection, restrict a Docker port to the laptop, apply one-click fixes. You always see the exact command
+  first.
+- **Keeps watch in the background.** An optional watcher sends a desktop notification when something
+  changes: a new open port, a new device, a program that goes online for the first time, a new warning.
+- **Digs deeper on request.** Secrets in plain-text files, autostart entries, set-uid files, modified system
+  binaries, a Lynis audit, known vulnerabilities in container images (Trivy) and in cargo/pip/npm packages.
 
-Nach Updates, die den Helfer betreffen (`helper::PROTOCOL`), meldet die App, dass er neu eingerichtet werden muss.
+## Screenshots
 
-### Befunde akzeptieren
-
-Bewusste Entscheidungen lassen sich abhaken („Akzeptieren“ im Befund bzw. `picket accept <kennung>`).
-Ein akzeptierter Befund zählt und meldet nicht mehr – bis sich seine Zusammenfassung ändert.
-
-### Firewall in der App
-
-Seite „Firewall“: ein-/ausschalten, Standardregel für eingehende Verbindungen, Regeln anlegen und löschen.
-Die App startet dafür den Root-Helfer mit `fw-apply <json>`; `src/fwctl.rs` prüft die Anfrage und führt nur
-fest definierte ufw-Befehle aus. Blockier-Regeln werden vorangestellt (`ufw prepend`), damit eine ältere
-Erlauben-Regel sie nicht aushebelt. Ist die Firewall aktiv, bewertet die App offene Ports anhand der Regeln:
-gesperrte Ports gelten nicht mehr als erreichbar; Docker-Ports bleiben offen, weil Docker ufw umgeht. Ansehen ohne Ausführen:
-
-```sh
-picket fw-apply --dry-run '{"op":"add","action":"allow","direction":"in","port":"22","proto":"tcp"}'
-```
-
-### Beendete Verbindungen
-
-Die Seite „Verbindungen“ merkt sich, was seit dem Öffnen der App zu sehen war (`src/session.rs`). Geschlossene
-Verbindungen bleiben abgeblendet stehen – im Live-Bild als gepunktete Linie, in der Programmliste mit
-„beendet vor n min“. Wie lange, steht unter Einstellungen (Standard: 30 Minuten). Damit nichts unbemerkt bleibt,
-wird auch im Hintergrund alle 15 Sekunden nachgesehen. Was kürzer lebt als der Abstand zweier Blicke
-(5 bzw. 15 Sekunden), fehlt weiterhin; lückenlos ist nur der Mitschnitt.
-
-### Netzwerk grafisch
-
-Seite „Netzwerk“: Live-Bild mit Programmen links und Gegenstellen rechts. Wandernde Punkte zeigen gemessenen
-TCP-Verkehr und dessen Richtung (Byte-Zähler aus `ss -i`); für UDP/QUIC führt der Kernel keine Zähler.
-
-### Mitschnitt, Trennen, Blockieren
-
-Seite „Mitschnitt“: zeichnet Pakete mit `tcpdump` auf (`pkexec picket capture <json>`, der Root-Helfer in
-`src/capture.rs` prüft Schnittstelle, Adresse, Port und Protokoll). Die Rohdaten kommen über eine Pipe; zerlegt
-werden sie ohne Root-Rechte in `src/pcap.rs`. Angezeigt werden Zeit, Richtung, Programm, Gegenstelle, Protokoll,
-Größe und eine Beschreibung (DNS-Namen, TLS-Servername, HTTP-Zeile, TCP-Zustand). Der Mitschnitt endet beim
-Stoppen, beim Schließen des Fensters, nach 15 Minuten oder 200 000 Paketen; die Aufzeichnung liegt bis dahin
-in `~/.cache/picket/mitschnitt.pcap` (nur für dich lesbar) und lässt sich als `.pcap` für Wireshark speichern.
-
-Im Menü „⋮“ jeder Verbindung (Seite „Netzwerk“) und auf der Mitschnitt-Seite:
-
-- **Verbindung trennen** – `ss -K` beendet die bestehenden Verbindungen zur Gegenstelle.
-- **Gegenstelle blockieren** – ufw-Regel gegen die Adresse plus sofortiges Trennen. Wirkt nur bei eingeschalteter Firewall.
-
-### Wächter und Verlauf
-
-`picket watch` vergleicht den aktuellen Zustand mit dem letzten Lauf und meldet Änderungen als
-Desktop-Benachrichtigung: neuer kritischer Befund oder neue Warnung, neuer offener Port, neues Gerät im Netz.
-Der Schalter „Wächter im Hintergrund“ (Übersicht) bzw. `picket watch on` richtet einen systemd-User-Timer ein
-(alle 5 Minuten; die langsamen Prüfungen nur alle 6 Stunden). Dabei werden auch die offenen Verbindungen notiert
-(`~/.local/state/picket/history/`, 30 Tage). Seite „Verlauf“ bzw. `picket events` / `history`.
-
-### Docker, Korrekturen, Tiefenprüfung
-
-- **Docker:** Container mit Ports und Rechten; für offene Ports die passende `127.0.0.1`-Zeile zum Kopieren.
-- **Beheben:** Befunde mit eindeutiger Lösung haben einen Knopf (`src/fixes.rs`, feste Befehle; Root-Korrekturen über pkexec).
-  `picket fix <befund> --dry-run` zeigt die Befehle.
-- **Tiefenprüfung** (`picket deep`): Zugangsdaten in Klartextdateien (gemeldet werden nur Pfad und Art),
-  Autostart-Einträge, set-uid-Dateien ohne Paket, `dpkg --verify`, Lynis-Audit ohne Root.
-- **Lücken-Abgleich** (`picket cve`): fragt osv.dev nach Lücken in Programmen aus cargo, pip (--user) und
-  globalem npm. Sendet Namen und Versionen; `--dry-run` zeigt die Liste. Pakete aus apt deckt Ubuntu selbst ab,
-  für manuell installierte .deb-Programme gibt es keine solche Datenbank.
-
-### Zusatzdaten (einmal laden, danach offline)
-
-`picket update-data` bzw. die Knöpfe auf der Übersicht laden nach `~/.local/share/picket/`:
-die Länder-/Anbieter-Datenbank von db-ip.com (IP → „Google LLC · USA“) und die Sperrliste StevenBlack/hosts
-(markiert Werbe-, Tracking- und Schad-Domains im Mitschnitt). `picket lookup <IP|Domain>` fragt beides ab.
-
-### Geräte im Netz
-
-Seite „Geräte im Netz“: Geräte aus der Nachbartabelle des Kernels (ARP/NDP) mit IP, MAC, Hersteller und Name.
-„Netz durchsuchen“ schickt ein UDP-Paket an jede Adresse des Subnetzes (bis /22) und findet so auch stille Geräte.
-Über „⋮“ lässt sich ein Gerät benennen und auf übliche Dienste prüfen (`picket ports <IP>`: 28 Ports, nur TCP-Verbindungsaufbau).
-
-## Was geprüft wird
-
-| Bereich | Prüfungen |
+| | |
 |---|---|
-| Firewall | ufw/firewalld aktiv, Standardregeln, Regeln (Root-Snapshot); in der App änderbar |
-| Netzwerk | Live: Verbindungen je Programm nach Ziel (Internet / LAN / VPN / Container / lokal), offene Ports und von wo sie erreichbar sind, Docker-Portfreigaben, WLAN-Verschlüsselung, Netzwerkdienste |
-| Virenscanner | ClamAV installiert, Alter der Signaturen, Update-Dienst, Echtzeitschutz, letzter Scan |
-| Programme & Updates | apt-Updates, Ubuntu-Pro/ESM-Updates, Snap, Flatpak, Firmware (fwupd), Pakete ohne Update-Quelle, fremde Paketquellen, ausstehender Neustart |
-| System & Firmware | LUKS-Verschlüsselung, Swap, Secure Boot, HSI-Stufe, AppArmor, CPU-Lücken, Kernel-Härtung |
-| Konten & Zugang | Konten/UID 0, sudo/docker-Gruppe, SSH-Server, SSH-Schlüssel und Dateirechte, Bildschirmsperre, Auto-Login |
+| ![Overview](docs/screenshots/overview.png) | ![Firewall](docs/screenshots/firewall.png) |
+| The overview: what needs attention | Firewall: state, rules and blocked domains |
+| ![Devices](docs/screenshots/devices.png) | ![Docker](docs/screenshots/docker.png) |
+| Devices on the local network | Containers, their ports and privileges |
 
-## Root-Snapshot
+All screenshots show made-up sample data (`PICKET_DEMO=1`). More in the [user guide](docs/user-guide.md).
 
-Das Dashboard läuft ohne Root. Firewall-Regeln, Prozessnamen fremder Ports, leere Passwörter und
-`NOPASSWD`-Regeln kann nur root lesen. `root-snapshot` sammelt genau diese Daten (nur lesend) nach
-`/run/picket/privileged.json` (Rechte 640, root + deine Gruppe); der Snapshot gilt 24 h bzw. bis zum Neustart.
+## Requirements
 
-## Bauen
+Picket is developed and tested on **Ubuntu 26.04 with GNOME**. It relies on Ubuntu's tools (`apt`, `ufw`),
+so other distributions are untested and some checks will not apply there.
+
+To build you need a Rust toolchain (1.80 or newer; developed with 1.98, for example from
+[rustup](https://rustup.rs)) and the GTK development packages:
 
 ```sh
-sudo apt install libgtk-4-dev libadwaita-1-dev   # nur zum Bauen der Oberfläche nötig
-cargo build --release        # Binary: target/release/picket
-cargo test
-cargo install --path .       # nach ~/.cargo/bin
-picket install-desktop
-
-cargo build --release --no-default-features   # ohne Oberfläche: nur Terminal und Browser-Dashboard
+sudo apt install libgtk-4-dev libadwaita-1-dev
 ```
 
-Abhängigkeiten: `gtk4`, `libadwaita` (Feature `gui`), `tiny_http`, `serde`, `serde_json`.
-Systemwerkzeuge werden nur aus `/usr/sbin`, `/usr/bin`, `/sbin`, `/bin`, `/snap/bin` gestartet, nicht über `$PATH`.
+GTK 4.12 and libadwaita 1.5 or newer are needed. Each of the following is optional and enables one part:
 
-## Grenzen
+| Tool | Used for |
+|---|---|
+| `ufw` | firewall state, rules, blocking |
+| `tcpdump` | packet capture |
+| `clamav` | virus scan |
+| `docker` | container page |
+| `trivy` | vulnerabilities in container images |
+| `lynis` | system audit in the deep check |
+| `fwupd`, `mokutil` | firmware and Secure Boot checks |
+| `libnotify-bin` | notifications from the watcher |
 
-- Verbindungen aus Docker-Containern und VMs erscheinen nicht als eigene Programme.
-- Die Netzwerkansicht ist eine Momentaufnahme (alle 5 s), kein Mitschnitt: sehr kurze Verbindungen können fehlen.
-- Kein CVE-Abgleich einzelner Programmversionen; bewertet wird, ob Updates ausstehen.
+## Install
+
+```sh
+git clone https://github.com/blanpa/picket.git
+cd picket
+cargo install --path .          # installs ~/.cargo/bin/picket
+picket install-desktop          # adds Picket to the application menu
+sudo ~/.cargo/bin/picket install-helper   # once: root helper for firewall, capture and system data
+```
+
+The last step is optional; the window offers it the first time it is needed. See
+[the security model](docs/security-model.md) for what the helper is and why it exists.
+
+To build without the window (terminal and browser dashboard only, no GTK needed):
+
+```sh
+cargo build --release --no-default-features
+```
+
+## Usage
+
+Start **Picket** from the application menu, or run `picket`.
+
+Everything is also available in the terminal:
+
+| Command | What it does |
+|---|---|
+| `picket check` | Report in the terminal (`--all` for every detail, `--json` for scripts). Exit code 1 if anything is critical. |
+| `picket net` | Where connections go and which ports are reachable |
+| `picket devices [--scan]` | Devices on the local network; `--scan` probes every address once |
+| `picket ports <IP>` | Try the usual service ports of one device |
+| `picket docker` / `picket images` | Containers and their ports / known vulnerabilities in their images |
+| `picket scan <path>` | Virus scan with ClamAV |
+| `picket deep` | The deep check (takes a few minutes) |
+| `picket watch [on\|off]` | One watcher round / run it every five minutes in the background |
+| `picket events`, `picket history [day]` | What the watcher reported / connections per day |
+| `picket fix <finding> [--dry-run]` | Apply the fix that belongs to a finding |
+| `picket accept <finding>` | Accept a finding: it stops counting until it changes |
+| `picket report` | The report as a standalone HTML page |
+| `picket update-data` | Download the country database and the domain blocklist |
+| `picket serve` | The browser dashboard on `127.0.0.1` |
+
+Run `picket help` for the full list.
+
+## How it treats your system
+
+- **Checks only read.** Nothing changes until you confirm an action, and every confirmation shows the command.
+- **Root actions go through a separate helper**, a root-owned copy of the binary with its own polkit rule.
+  It accepts four commands and validates their arguments; no free-form text reaches `ufw` or `tcpdump`.
+- **Nothing is sent anywhere by default.** Downloads (country database, blocklist) and look-ups
+  (osv.dev, Trivy) happen only when you ask for them.
+- **System tools are started from fixed system directories**, never through `$PATH`.
+
+The details, including a list of every file Picket writes, are in [docs/security-model.md](docs/security-model.md).
+
+## Limitations
+
+- The connection view looks every 5 seconds. Connections shorter than that are missed; only a capture is complete.
+- Per-connection traffic is measured for TCP only. The throughput chart covers everything, including QUIC.
+- Traffic from inside containers and virtual machines is not attributed to a program.
+- The firewall verdict for a port understands `ufw` rules. Docker is accounted for; rules added by other
+  tools (libvirt, Multipass) are not.
+- Blocking a host blocks one IP address; blocking a domain blocks exactly that name through `/etc/hosts`
+  and does not affect programs that use their own encrypted DNS.
+- Vulnerability look-ups cover container images and cargo/pip/npm packages, not manually installed `.deb` files.
+- The browser dashboard only has the checks and the connection list, not the newer pages.
+
+## Documentation
+
+- [User guide](docs/user-guide.md): a tour of every page
+- [Security model](docs/security-model.md): what runs as root, what leaves the machine, what is stored
+- [Development](docs/development.md): layout of the code, tests, demo mode, regenerating the screenshots
+
+## License
+
+No license has been chosen yet. All rights reserved.
