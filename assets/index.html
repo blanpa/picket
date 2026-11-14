@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Picket</title>
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dfe3e8;
+  --text: #17202b; --muted: #5d6b7a; --accent: #1f5fbf; --accent-text: #ffffff;
+  --crit: #c62828; --crit-bg: #fdecec;
+  --warn: #a35a00; --warn-bg: #fff3dc;
+  --info: #1f5fbf; --info-bg: #e8f0fc;
+  --ok: #1b7a43; --ok-bg: #e5f5ec;
+  --unknown: #6b5b95; --unknown-bg: #efecf7;
+  --z-internet: #7b3fc4; --z-lan: #0b7f86; --z-vpn: #3558c9; --z-container: #8a6a1c; --z-loopback: #66727f;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161b; --surface: #1a2027; --surface-2: #222a33; --border: #2f3944;
+    --text: #e6ebf0; --muted: #98a5b3; --accent: #7fb0ff; --accent-text: #0d1319;
+    --crit: #ff8a80; --crit-bg: #3a1c1c;
+    --warn: #ffc163; --warn-bg: #382a12;
+    --info: #8ab8ff; --info-bg: #1a2a42;
+    --ok: #74d49b; --ok-bg: #16301f;
+    --unknown: #c0b0ee; --unknown-bg: #2a2440;
+    --z-internet: #c39bff; --z-lan: #5fd3d9; --z-vpn: #93abff; --z-container: #e0c070; --z-loopback: #9aa7b4;
+  }
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Ubuntu, Roboto, sans-serif; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 64px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 17px; margin: 28px 0 10px; }
+h3 { font-size: 14px; margin: 0 0 6px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+code, .mono { font-family: var(--mono); font-size: 13px; }
+button { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 7px 13px; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .55; cursor: default; }
+button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
+
+.top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.top .actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
+.tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 18px 0 6px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; border-top: 4px solid var(--c); }
+.tile .n { font-size: 28px; font-weight: 700; line-height: 1.1; color: var(--c); font-variant-numeric: tabular-nums; }
+.tile .l { font-size: 13px; color: var(--muted); }
+@media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.banner { background: var(--unknown-bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 12px 0 0; }
+
+.tabs { display: flex; gap: 4px; margin: 20px 0 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: none; padding: 9px 12px; white-space: nowrap; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.pill { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; font-size: 12px; font-weight: 700; text-align: center; }
+.pill.crit { background: var(--crit-bg); color: var(--crit); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+
+.finding { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--c); border-radius: 10px; margin: 8px 0; }
+.finding > summary { list-style: none; cursor: pointer; padding: 11px 14px; display: grid; grid-template-columns: 96px minmax(0, 1fr) 16px; gap: 4px 12px; align-items: baseline; }
+.finding > summary::-webkit-details-marker { display: none; }
+.finding > summary::after { content: "›"; color: var(--muted); transition: transform .15s; justify-self: end; }
+.finding[open] > summary::after { transform: rotate(90deg); }
+.badge { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 6px; background: var(--cb); color: var(--c); text-align: center; text-transform: uppercase; }
+.ftitle { font-weight: 600; }
+.fsum { color: var(--muted); display: block; font-weight: 400; overflow-wrap: anywhere; }
+.fbody { padding: 0 14px 14px 122px; }
+.fbody p { margin: 6px 0; }
+.evidence { margin: 8px 0; padding: 8px 12px; background: var(--surface-2); border-radius: 8px; list-style: none; font-family: var(--mono); font-size: 13px; max-height: 300px; overflow: auto; }
+.evidence li { padding: 1px 0; overflow-wrap: anywhere; }
+.fix { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.cmd { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+.cmd code { flex: 1; background: var(--surface-2); padding: 6px 10px; border-radius: 6px; overflow-x: auto; white-space: pre; }
+.cmd button { padding: 4px 9px; font-size: 13px; }
+@media (max-width: 720px) { .finding > summary { grid-template-columns: 1fr 16px; } .fbody { padding-left: 14px; } .badge { justify-self: start; } }
+.s-crit { --c: var(--crit); --cb: var(--crit-bg); }
+.s-warn { --c: var(--warn); --cb: var(--warn-bg); }
+.s-info { --c: var(--info); --cb: var(--info-bg); }
+.s-ok { --c: var(--ok); --cb: var(--ok-bg); }
+.s-unknown { --c: var(--unknown); --cb: var(--unknown-bg); }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin: 10px 0; }
+.catrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.catrow:last-child { border-bottom: 0; }
+.catrow .chips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.chip { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; background: var(--cb); color: var(--c); white-space: nowrap; }
+
+.zones { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 860px) { .zones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.zone { text-align: left; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--zc); border-radius: 10px; padding: 10px 12px; }
+.zone[aria-pressed="true"] { outline: 2px solid var(--zc); outline-offset: 1px; }
+.zone .n { font-size: 24px; font-weight: 700; color: var(--zc); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.zone .l { font-weight: 600; }
+.zone .d { font-size: 12px; color: var(--muted); }
+.z-internet { --zc: var(--z-internet); } .z-lan { --zc: var(--z-lan); } .z-vpn { --zc: var(--z-vpn); }
+.z-container { --zc: var(--z-container); } .z-loopback { --zc: var(--z-loopback); }
+.e-all { --zc: var(--crit); } .e-lan { --zc: var(--warn); } .e-vpn { --zc: var(--z-vpn); }
+.e-container { --zc: var(--z-container); } .e-loopback { --zc: var(--ok); }
+.ztag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--zc); color: var(--zc); white-space: nowrap; }
+
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:last-child > td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.nowrap { white-space: nowrap; }
+td.addrs { overflow-wrap: anywhere; min-width: 160px; }
+td.num b { color: var(--zc); }
+td.zero { color: var(--border); }
+tr.prog { cursor: pointer; }
+tr.prog:hover td { background: var(--surface-2); }
+tr.eps > td { background: var(--surface-2); padding: 8px 12px 10px 28px; }
+.ep { display: grid; grid-template-columns: 22px 150px minmax(0, 1fr) auto; gap: 8px; padding: 2px 0; align-items: baseline; font-size: 13px; }
+.ep .addr { font-family: var(--mono); overflow-wrap: anywhere; }
+.ep .host { color: var(--muted); font-family: inherit; }
+.toolbar { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.toolbar label { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+.dot.off { background: var(--muted); }
+.scanbox { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .finding > summary::after { transition: none; } }
+.loading { padding: 40px 0; text-align: center; color: var(--muted); }
+.err { background: var(--crit-bg); color: var(--crit); padding: 10px 14px; border-radius: 10px; margin: 12px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Picket</h1>
+      <div id="host" class="muted small">Wird geprüft …</div>
+    </div>
+    <div class="actions">
+      <span id="stamp" class="muted small"></span>
+      <button id="rescan" class="primary">Neu prüfen</button>
+    </div>
+  </header>
+  <div id="error"></div>
+  <section id="tiles" class="tiles" aria-label="Zusammenfassung"></section>
+  <div id="banner"></div>
+  <nav id="tabs" class="tabs" role="tablist"></nav>
+  <main id="view"><div class="loading"><span class="spinner"></span> System wird geprüft – das dauert einige Sekunden …</div></main>
+</div>
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const STATUS = {
+  crit: { label: "Kritisch", plural: "Kritisch" },
+  warn: { label: "Warnung", plural: "Warnungen" },
+  unknown: { label: "Unklar", plural: "Unklar" },
+  info: { label: "Hinweis", plural: "Hinweise" },
+  ok: { label: "OK", plural: "In Ordnung" },
+};
+const CATS = [
+  ["firewall", "Firewall"], ["network", "Netzwerk"], ["docker", "Docker"], ["antivirus", "Virenscanner"],
+  ["software", "Programme & Updates"], ["system", "System & Firmware"], ["access", "Konten & Zugang"],
+];
+const ZONES = {
+  internet: { label: "Internet", desc: "Server außerhalb deines Netzes" },
+  lan: { label: "Lokales Netz", desc: "Router, NAS, Drucker, andere Geräte" },
+  vpn: { label: "VPN", desc: "Tailscale, WireGuard & Co." },
+  container: { label: "Container / VM", desc: "Docker, virtuelle Maschinen" },
+  loopback: { label: "Nur dieser Rechner", desc: "Programme untereinander" },
+};
+const ZONE_ORDER = ["internet", "lan", "vpn", "container", "loopback"];
+const EXPOSURE = {
+  all: "Alle Netze", lan: "Lokales Netz", vpn: "VPN", container: "Container / VM", loopback: "Nur lokal",
+};
+
+const state = {
+  tab: "overview", report: null, net: null, scan: null,
+  live: true, zone: null, open: new Set(), resolve: false, names: new Map(), pending: new Set(),
+  showLocalPorts: false,
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "X-Picket-Token": TOKEN, ...(opts.headers || {}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Fehler ${res.status}`);
+  return data;
+}
+function showError(msg) { $("error").innerHTML = msg ? `<div class="err">${esc(msg)}</div>` : ""; }
+function timeStr(epoch) { return new Date(epoch * 1000).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }); }
+
+// ---------------------------------------------------------------- findings
+function findingCard(f, open) {
+  const cmds = f.commands.map((c) => `<div class="cmd"><code>${esc(c)}</code><button data-copy="${esc(c)}">Kopieren</button></div>`).join("");
+  const body = [
+    f.why ? `<p>${esc(f.why)}</p>` : "",
+    f.details.length ? `<ul class="evidence">${f.details.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>` : "",
+    f.fix ? `<div class="fix"><h3>Empfehlung</h3><p>${esc(f.fix)}</p>${cmds}</div>` : "",
+  ].join("");
+  return `<details class="finding s-${f.status}" ${open ? "open" : ""}>
+    <summary><span class="badge">${STATUS[f.status].label}</span>
+      <span><span class="ftitle">${esc(f.title)}</span><span class="fsum">${esc(f.summary)}</span></span></summary>
+    <div class="fbody">${body || '<p class="muted">Keine weiteren Details.</p>'}</div></details>`;
+}
+function findingsFor(cat) { return state.report.findings.filter((f) => f.category === cat); }
+
+// ------------------------------------------------------------------ header
+function renderChrome() {
+  const r = state.report;
+  if (!r) return;
+  const h = r.host;
+  $("host").textContent = [h.model, h.os, `Kernel ${h.kernel}`, `BIOS ${h.bios}`].filter(Boolean).join(" · ");
+  $("stamp").textContent = `Stand ${timeStr(r.generated)}`;
+  $("tiles").innerHTML = ["crit", "warn", "unknown", "info", "ok"].map((s) =>
+    `<div class="tile s-${s}"><div class="n">${r.counts[s]}</div><div class="l">${STATUS[s].plural}</div></div>`).join("");
+  $("banner").innerHTML = r.privileged.available
+    ? `<div class="banner small">Root-Snapshot von ${timeStr(r.privileged.created)} wird verwendet (Firewall-Regeln, Prozessnamen, Passwortprüfung).</div>`
+    : `<div class="banner small">Einige Prüfungen brauchen Root-Rechte (Firewall-Regeln, Prozessnamen fremder Ports, leere Passwörter).
+        Einmal im Terminal ausführen und danach „Neu prüfen“:
+        <div class="cmd"><code>${esc(r.privileged.command)}</code><button data-copy="${esc(r.privileged.command)}">Kopieren</button></div></div>`;
+  const tabs = [["overview", "Übersicht"], ...CATS];
+  $("tabs").innerHTML = tabs.map(([id, label]) => {
+    let pill = "";
+    if (id !== "overview") {
+      const fs = findingsFor(id);
+      const crit = fs.filter((f) => f.status === "crit").length;
+      const warn = fs.filter((f) => f.status === "warn").length;
+      if (crit) pill = `<span class="pill crit">${crit}</span>`;
+      else if (warn) pill = `<span class="pill warn">${warn}</span>`;
+    }
+    return `<button role="tab" data-tab="${id}" aria-selected="${state.tab === id}">${esc(label)}${pill}</button>`;
+  }).join("");
+}
+
+// -------------------------------------------------------------------- views
+function viewOverview() {
+  const r = state.report;
+  const urgent = r.findings.filter((f) => f.status === "crit" || f.status === "warn");
+  const order = { crit: 0, warn: 1 };
+  urgent.sort((a, b) => order[a.status] - order[b.status]);
+  const cats = CATS.map(([id, label]) => {
+    const fs = findingsFor(id);
+    const chips = ["crit", "warn", "unknown", "info", "ok"].map((s) => {
+      const n = fs.filter((f) => f.status === s).length;
+      return n ? `<span class="chip s-${s}">${n} ${STATUS[s].plural}</span>` : "";
+    }).join("");
+    return `<div class="catrow" data-tab="${id}" role="link" tabindex="0"><strong>${esc(label)}</strong><span class="chips">${chips}</span></div>`;
+  }).join("");
+  return `
+    <h2>Handlungsbedarf (${urgent.length})</h2>
+    ${urgent.length ? urgent.map((f) => findingCard(f, false)).join("") : '<div class="card">Keine kritischen Befunde oder Warnungen. 👍</div>'}
+    <h2>Bereiche</h2>
+    <div class="card">${cats}</div>
+    <p class="muted small">Dieses Werkzeug liest nur und ändert nichts am System. Die vorgeschlagenen Befehle führst du selbst im Terminal aus.</p>`;
+}
+
+function viewCategory(cat) {
+  const fs = findingsFor(cat);
+  const extra = cat === "network" ? '<div id="netlive"></div><h2>Prüfungen</h2>' : cat === "antivirus" ? '<div id="scan"></div><h2>Prüfungen</h2>' : "";
+  return extra + (fs.length ? fs.map((f) => findingCard(f, f.status === "crit")).join("") : '<div class="card muted">Keine Prüfungen in diesem Bereich.</div>');
+}
+
+// ----------------------------------------------------------------- network
+function progLabel(p) { return p.name || "System / anderer Benutzer"; }
+
+function renderNet() {
+  const el = $("netlive");
+  if (!el) return;
+  const n = state.net;
+  if (!n) { el.innerHTML = '<div class="loading"><span class="spinner"></span> Verbindungen werden gelesen …</div>'; return; }
+
+  const zones = ZONE_ORDER.map((z) => {
+    const t = n.totals[z] || { connections: 0, hosts: 0, programs: 0 };
+    return `<button class="zone z-${z}" data-zone="${z}" aria-pressed="${state.zone === z}">
+      <div class="n">${t.connections}</div><div class="l">${ZONES[z].label}</div>
+      <div class="d">${t.hosts} Gegenstellen · ${t.programs} Programme</div>
+      <div class="d">${ZONES[z].desc}</div></button>`;
+  }).join("");
+
+  const shownZones = state.zone ? [state.zone] : ZONE_ORDER;
+  const progs = n.programs.filter((p) => state.zone ? p.zones[state.zone] : ZONE_ORDER.slice(0, 4).some((z) => p.zones[z]));
+  const rows = progs.map((p) => {
+    const key = p.name;
+    const open = state.open.has(key);
+    const cells = ZONE_ORDER.map((z) => {
+      const c = p.zones[z] || 0;
+      return c ? `<td class="num z-${z}"><b>${c}</b></td>` : `<td class="num zero">·</td>`;
+    }).join("");
+    let eps = "";
+    if (open) {
+      const list = p.endpoints.filter((e) => shownZones.includes(e.zone));
+      eps = `<tr class="eps"><td colspan="6">${list.map((e) => {
+        const name = state.names.get(e.remote);
+        const addr = e.remote.includes(":") ? `[${e.remote}]:${e.port}` : `${e.remote}:${e.port}`;
+        return `<div class="ep"><span title="${e.inbound ? "eingehend" : "ausgehend"}">${e.inbound ? "←" : "→"}</span>
+          <span><span class="ztag z-${e.zone}">${ZONES[e.zone].label}</span></span>
+          <span class="addr">${esc(addr)}${name ? ` <span class="host">${esc(name)}</span>` : ""}</span>
+          <span class="muted">${esc([e.service, e.proto.toUpperCase(), e.count > 1 ? `×${e.count}` : ""].filter(Boolean).join(" · "))}</span></div>`;
+      }).join("") || '<span class="muted">Keine Verbindungen in dieser Zone.</span>'}</td></tr>`;
+    }
+    return `<tr class="prog" data-prog="${esc(key)}" tabindex="0" aria-expanded="${open}">
+      <td>${open ? "▾" : "▸"} <strong>${esc(progLabel(p))}</strong>${p.pids.length > 1 ? ` <span class="muted small">${p.pids.length} Prozesse</span>` : ""}</td>${cells}</tr>${eps}`;
+  }).join("");
+
+  const ports = n.listeners.filter((l) => !l.ephemeral && (state.showLocalPorts || l.exposure !== "loopback"));
+  const hiddenLocal = n.listeners.filter((l) => !l.ephemeral && l.exposure === "loopback").length;
+  const ephemeral = n.listeners.filter((l) => l.ephemeral).length;
+  const portRows = ports.map((l) => {
+    const who = l.container ? `Docker: ${l.container}` : (l.process || "unbekannt (anderer Benutzer)");
+    return `<tr><td class="mono nowrap">${esc(l.proto.toUpperCase())} ${l.port}</td><td class="nowrap">${esc(l.service || "")}</td>
+      <td class="nowrap">${esc(who)}</td><td><span class="ztag e-${l.exposure}">${EXPOSURE[l.exposure]}</span></td>
+      <td class="mono muted addrs">${esc(l.addrs.join(", "))}</td></tr>`;
+  }).join("");
+
+  const ifaces = n.ifaces.filter((i) => i.up && i.addrs.length).map((i) =>
+    `<tr><td class="mono nowrap">${esc(i.name)}</td><td><span class="ztag z-${i.kind}">${ZONES[i.kind].label}</span></td>
+     <td class="mono muted">${esc(i.addrs.map((a) => `${a.ip}/${a.prefix}`).join(", "))}</td></tr>`).join("");
+
+  el.innerHTML = `
+    <div class="toolbar" style="justify-content:space-between">
+      <h2 style="margin:16px 0 4px">Wohin gehen die Verbindungen?</h2>
+      <span class="live"><span class="dot ${state.live ? "" : "off"}"></span>
+        ${state.live ? `Live · ${timeStr(n.generated)}` : "Pausiert"}
+        <button id="toggleLive">${state.live ? "Pausieren" : "Fortsetzen"}</button></span>
+    </div>
+    <div class="zones">${zones}</div>
+    <div class="toolbar">
+      <span class="muted small">${state.zone ? `Filter: ${ZONES[state.zone].label} – nochmal klicken zum Aufheben.` : "Kachel anklicken, um nach Ziel zu filtern. Zahl = aktive Verbindungen."}</span>
+      <label><input type="checkbox" id="resolve" ${state.resolve ? "checked" : ""}> Hostnamen auflösen</label>
+    </div>
+    <div class="card tablewrap"><table>
+      <thead><tr><th>Programm</th>${ZONE_ORDER.map((z) => `<th class="num">${ZONES[z].label}</th>`).join("")}</tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="muted">Keine aktiven Verbindungen.</td></tr>'}</tbody></table></div>
+    <p class="muted small">→ ausgehend, ← eingehend. Verbindungen aus Docker-Containern und VMs laufen über das Netz des Laptops,
+      erscheinen hier aber nicht als eigene Programme. Ohne Root-Snapshot fehlen die Namen von Systemprozessen.</p>
+
+    <h2>Offene Ports – wer kann diesen Laptop erreichen?</h2>
+    <div class="card tablewrap"><table>
+      <thead><tr><th>Port</th><th>Dienst</th><th>Programm</th><th>Erreichbar aus</th><th>Adresse</th></tr></thead>
+      <tbody>${portRows || '<tr><td colspan="5" class="muted">Keine von außen erreichbaren Ports.</td></tr>'}</tbody></table></div>
+    <div class="toolbar">
+      <label><input type="checkbox" id="showLocal" ${state.showLocalPorts ? "checked" : ""}> Auch nur lokal erreichbare Ports zeigen (${hiddenLocal})</label>
+      <span class="muted small">${ephemeral} kurzlebige UDP-Ports ausgeblendet.</span>
+    </div>
+
+    <details class="card"><summary><strong>Netzwerkschnittstellen</strong> <span class="muted small">(${n.ifaces.filter((i) => i.up && i.addrs.length).length} aktiv)</span></summary>
+      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Art</th><th>Adressen</th></tr></thead><tbody>${ifaces}</tbody></table></div></details>`;
+  if (state.resolve) resolveVisible();
+}
+
+function resolveVisible() {
+  const n = state.net;
+  if (!n) return;
+  const want = [];
+  for (const p of n.programs) {
+    if (!state.open.has(p.name)) continue;
+    for (const e of p.endpoints) {
+      if (e.zone === "loopback" || state.names.has(e.remote) || state.pending.has(e.remote)) continue;
+      want.push(e.remote);
+    }
+  }
+  for (const ip of [...new Set(want)].slice(0, 40)) {
+    state.pending.add(ip);
+    api(`/api/resolve?ip=${encodeURIComponent(ip)}`)
+      .then((d) => { state.names.set(ip, d.name || ""); })
+      .catch(() => { state.names.set(ip, ""); })
+      .finally(() => { state.pending.delete(ip); if (state.pending.size === 0) renderNet(); });
+  }
+}
+
+async function loadNet() {
+  try { state.net = await api("/api/network"); if (state.tab === "network") renderNet(); }
+  catch (e) { showError(`Netzwerkdaten: ${e.message}`); }
+}
+setInterval(() => { if (state.tab === "network" && state.live && !document.hidden) loadNet(); }, 5000);
+
+// -------------------------------------------------------------------- scan
+function fmtDuration(s) { const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")} min`; }
+
+function renderScan() {
+  const el = $("scan");
+  if (!el) return;
+  const d = state.scan;
+  if (!d) { el.innerHTML = ""; return; }
+  if (!d.available) { el.innerHTML = '<div class="card">ClamAV ist nicht installiert – ein Scan ist nicht möglich.</div>'; return; }
+  const s = d.scan;
+  const selected = el.querySelector("select")?.value || "downloads";
+  const options = d.targets.map((t) => `<option value="${t.key}" ${t.key === selected ? "selected" : ""}>${esc(t.label)} – ${esc(t.path)}</option>`).join("");
+  let status = "";
+  if (s.running) {
+    status = `<p><span class="spinner"></span> Scan läuft seit ${fmtDuration(Math.max(0, Math.floor(Date.now() / 1000) - s.started))} ·
+      ${s.files} Dateien geprüft${s.infected.length ? ` · <strong>${s.infected.length} Fund(e)</strong>` : ""}</p>
+      <p class="mono muted small" style="overflow-wrap:anywhere">${esc(s.current || "Signaturen werden geladen …")}</p>`;
+  } else if (s.error) {
+    status = `<div class="err">${esc(s.error)}</div>`;
+  } else if (s.finished) {
+    const head = s.cancelled ? "Scan abgebrochen" : s.infected.length ? `${s.infected.length} Fund(e)` : "Keine Funde";
+    status = `<p><span class="chip s-${s.infected.length ? "crit" : s.cancelled ? "info" : "ok"}">${head}</span>
+      ${esc(s.path)} · ${s.files} Dateien geprüft${s.skipped ? ` · ${s.skipped} nicht lesbar` : ""} · ${fmtDuration(s.finished - s.started)}</p>`;
+  }
+  const found = s.infected.length
+    ? `<ul class="evidence">${s.infected.map((i) => `<li>${esc(i.path)} – ${esc(i.signature)}</li>`).join("")}</ul>
+       <p class="small muted">Das Tool löscht nichts. Prüfe die Dateien und entferne sie selbst; Fehlalarme kommen vor.</p>` : "";
+  el.innerHTML = `<h2>Virenscan starten</h2><div class="card">
+    <div class="scanbox"><select id="scanTarget" ${s.running ? "disabled" : ""} aria-label="Scan-Ziel">${options}</select>
+      ${s.running ? '<button id="scanCancel">Abbrechen</button>' : '<button id="scanStart" class="primary">Scan starten</button>'}</div>
+    ${status}${found}
+    <p class="muted small">Der Scan läuft mit niedriger Priorität; ClamAV braucht dabei etwa 1 GB Arbeitsspeicher.</p></div>`;
+}
+
+let scanTimer = null;
+async function loadScan() {
+  try {
+    state.scan = await api("/api/scan");
+    if (state.tab === "antivirus") renderScan();
+    clearTimeout(scanTimer);
+    if (state.scan.scan.running) scanTimer = setTimeout(loadScan, 1500);
+  } catch (e) { showError(`Scan: ${e.message}`); }
+}
+
+// ------------------------------------------------------------------ render
+function render() {
+  renderChrome();
+  if (!state.report) return;
+  $("view").innerHTML = state.tab === "overview" ? viewOverview() : viewCategory(state.tab);
+  if (state.tab === "network") { renderNet(); loadNet(); }
+  if (state.tab === "antivirus") { renderScan(); loadScan(); }
+}
+
+async function loadReport(refresh) {
+  const btn = $("rescan");
+  btn.disabled = true; btn.textContent = "Prüfe …";
+  showError("");
+  try { state.report = await api(`/api/report${refresh ? "?refresh=1" : ""}`); render(); }
+  catch (e) { showError(`Bericht konnte nicht geladen werden: ${e.message}`); }
+  finally { btn.disabled = false; btn.textContent = "Neu prüfen"; }
+}
+
+function setTab(tab) { state.tab = tab; render(); window.scrollTo({ top: 0 }); }
+
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("[data-copy],[data-tab],[data-zone],[data-prog],#rescan,#toggleLive,#scanStart,#scanCancel");
+  if (!t) return;
+  if (t.dataset.copy !== undefined) {
+    try { await navigator.clipboard.writeText(t.dataset.copy); t.textContent = "Kopiert"; }
+    catch { t.textContent = "Nicht möglich"; }
+    setTimeout(() => { t.textContent = "Kopieren"; }, 1500);
+    ev.preventDefault();
+  } else if (t.dataset.tab) setTab(t.dataset.tab);
+  else if (t.dataset.zone) { state.zone = state.zone === t.dataset.zone ? null : t.dataset.zone; renderNet(); }
+  else if (t.dataset.prog !== undefined) { const k = t.dataset.prog; state.open.has(k) ? state.open.delete(k) : state.open.add(k); renderNet(); }
+  else if (t.id === "rescan") loadReport(true);
+  else if (t.id === "toggleLive") { state.live = !state.live; renderNet(); if (state.live) loadNet(); }
+  else if (t.id === "scanStart") {
+    try { await api("/api/scan/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target: $("scanTarget").value }) }); }
+    catch (e) { showError(e.message); }
+    loadScan();
+  } else if (t.id === "scanCancel") { try { await api("/api/scan/cancel", { method: "POST" }); } catch (e) { showError(e.message); } loadScan(); }
+});
+document.addEventListener("change", (ev) => {
+  if (ev.target.id === "resolve") { state.resolve = ev.target.checked; renderNet(); }
+  if (ev.target.id === "showLocal") { state.showLocalPorts = ev.target.checked; renderNet(); }
+});
+document.addEventListener("keydown", (ev) => {
+  if ((ev.key === "Enter" || ev.key === " ") && ev.target.matches("tr.prog, .catrow")) { ev.preventDefault(); ev.target.click(); }
+});
+
+loadReport(false);
+</script>
+</body>
+</html>

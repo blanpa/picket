@@ -1,0 +1,24 @@
+[package]
+name = "picket"
+version = "0.1.0"
+edition = "2021"
+description = "Picket: Sicherheits-Check für den Linux-Laptop (Firewall, Virenscanner, Updates, Netzwerk)"
+
+[features]
+default = ["gui"]
+# Native GTK4/libadwaita window. Needs libgtk-4-dev and libadwaita-1-dev to build;
+# `cargo build --no-default-features` builds the CLI and browser dashboard only.
+gui = ["dep:gtk", "dep:adw", "dep:pangocairo"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+maxminddb = "0.27"
+gtk = { package = "gtk4", version = "0.11", optional = true, features = ["v4_12"] }
+adw = { package = "libadwaita", version = "0.9", optional = true, features = ["v1_5"] }
+pangocairo = { version = "0.22", optional = true }
+
+[profile.release]
+opt-level = 2
+strip = true
