@@ -1,0 +1,117 @@
+name: Release
+
+# Pushing a tag such as v0.2.0 builds the packages and publishes them as a release.
+# "Run workflow" builds and tests the same packages without publishing anything;
+# they can then be downloaded from the run's page.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  build:
+    name: Packages (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    # Ubuntu 24.04 is the oldest system with the libraries Picket needs (GTK 4.12,
+    # libadwaita 1.5). What is built here also runs on everything newer.
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The tag must match the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME, but Cargo.toml says version $version."
+            exit 1
+          fi
+
+      - name: Install what the build needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev rpm
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Package
+        run: |
+          packaging/build.sh all
+          dpkg-deb --info dist/*.deb
+          rpm -qp --info --requires dist/*.rpm
+
+      - name: Install the packages on fresh systems
+        run: packaging/smoke-test.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          cat > notes.md <<NOTES
+          ## Install
+
+          | System | Download | Then run |
+          |---|---|---|
+          | Ubuntu 24.04 or newer, Debian 13 or newer | \`picket_${version}_amd64.deb\` (ARM: \`arm64\`) | \`sudo apt install ./picket_${version}_amd64.deb\` |
+          | Fedora 40 or newer | \`picket-${version}-1.x86_64.rpm\` (ARM: \`aarch64\`) | \`sudo dnf install ./picket-${version}-1.x86_64.rpm\` |
+          | Any other distribution with GTK 4.12 and libadwaita 1.5 | \`picket-${version}-linux-x86_64.tar.gz\` (ARM: \`aarch64\`) | unpack, then \`./install.sh\` |
+
+          Afterwards **Picket** is in the application menu. To check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`.
+
+          Picket is developed and tested on Ubuntu. On other distributions some checks do not apply.
+          NOTES
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+              --title "Picket $version" --notes-file notes.md --generate-notes
+          fi

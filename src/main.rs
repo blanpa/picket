@@ -462,6 +462,11 @@ fn main() -> ExitCode {
             }
         },
         [] | ["gui"] => start_gui(),
+        // For packaging: the launcher entry of a system-wide installation.
+        ["desktop-entry"] => {
+            print!("{}", desktop_entry("/usr/bin/picket"));
+            ExitCode::SUCCESS
+        }
         ["install-desktop"] => match install_desktop() {
             Ok(()) => {
                 crate::outln!("Die App „Picket“ steht jetzt im App-Menü.");

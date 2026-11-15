@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+# The root helper for firewall changes, captures and system data: a root-owned copy of the
+# program with its own polkit rule (see docs/security-model.md). Installing it here saves
+# the user the one-time set-up step; an upgrade brings it up to date.
+if [ "$1" = "configure" ]; then
+    /usr/bin/picket install-helper >/dev/null || echo "picket: the root helper could not be set up; the app will offer to do it." >&2
+fi

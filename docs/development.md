@@ -46,6 +46,7 @@ Interface text is written in German in the code and translated to English when i
 | `src/demo.rs` | sample data for demo mode |
 | `src/i18n.rs`, `src/i18n_en.rs` | the interface language: the translator and the German-to-English table |
 | `src/util.rs` | running tools with a timeout, paths, small helpers |
+| `packaging/`, `.github/workflows/release.yml` | building the `.deb`, `.rpm` and `.tar.gz` packages / the release pipeline |
 
 ### Conventions
 
@@ -59,7 +60,6 @@ Interface text is written in German in the code and translated to English when i
 - **Anything that changes the system** goes through `fwctl::Op` or `fixes::apply`, both of which build
   their commands from validated parts.
 
-## Tests
 ## Languages
 
 The interface follows the system language (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`): German when it
@@ -90,6 +90,7 @@ PICKET_LANG=en PICKET_I18N_LOG=/tmp/untranslated.log picket check --all   # what
 The browser dashboard (`assets/index.html`) is a German page; `src/server.rs` holds the list of its
 English replacements, and a test makes sure the list matches the page.
 
+## Tests
 
 ```sh
 cargo test                        # all unit tests
@@ -99,12 +100,53 @@ sudo picket selftest-root         # the root paths, for real, without lasting ch
 
 There are no automated tests of the window itself. The test aids below are what is used to look at it.
 
+## Releases
+
+A release is made by a tag:
+
+```sh
+# set the new version in Cargo.toml, then
+cargo build --release            # also updates Cargo.lock
+git commit -am "Version 0.2.0"
+git tag v0.2.0
+git push origin main v0.2.0
+```
+
+The workflow in `.github/workflows/release.yml` then runs on Ubuntu 24.04, once for x86_64 and once for
+ARM64: it runs the tests, builds the program, packs it with `packaging/build.sh`, installs every package on
+a fresh system with `packaging/smoke-test.sh` (Ubuntu 24.04 and 26.04, Debian 13, Fedora) and publishes the
+files with a `SHA256SUMS` as a GitHub release. The tag has to match the version in `Cargo.toml`.
+
+*Run workflow* on the workflow's page (or `gh workflow run release.yml`) does the same without publishing;
+the packages can be downloaded from the run. Use it to try a change to the packaging.
+
+Ubuntu 24.04 is the build system because it is the oldest one with GTK 4.12 and libadwaita 1.5: a program
+built there also runs on everything newer, but not the other way round.
+
+The packaging uses only `dpkg-deb` and `rpmbuild`:
+
+```sh
+cargo build --release --locked
+packaging/build.sh deb           # or rpm, tar, all; results in dist/
+packaging/smoke-test.sh          # needs docker and all three kinds of package
+```
+
+- The `.deb` and `.rpm` install `/usr/bin/picket`, the menu entry (`picket desktop-entry` prints it) and the
+  icon. Their post-install script runs `picket install-helper`, their removal script `picket remove-helper`.
+- The `.tar.gz` holds the program and `install.sh`, which installs for the current user.
+- `packaging/third-party.py` collects the licences of the Rust libraries compiled into the program; every
+  package carries the result as `THIRD-PARTY-LICENSES.txt`.
+
+The packages are not signed and there is no package repository: an update means installing the next file.
+
 ## Demo mode and test aids
 
 These environment variables exist for development; none of them is needed in normal use.
 
 | Variable | Effect |
 |---|---|
+| `PICKET_LANG=de\|en` | interface language, instead of the system's |
+| `PICKET_I18N_LOG=<file>` | every piece of text that has no English translation is appended to that file (names and addresses included) |
 | `PICKET_DEMO=1` | the window and the terminal show sample data (`src/demo.rs`); actions that change the system are refused |
 | `PICKET_SHOT=<prefix>` | the window visits every page, saves `<prefix>-<page>.png` and quits. It renders only its own window, not the screen, and runs beside an already open Picket. |
 | `PICKET_SHOT_SIZE=1120x820` | window size for that tour |
@@ -121,6 +163,8 @@ These environment variables exist for development; none of them is needed in nor
 cargo build --release
 PICKET_WRITE_SAMPLE=/tmp/sample.pcap cargo test --release writes_sample_capture
 
+export PICKET_LANG=en PICKET_DEMO=1
+
 # every page, 1120x820
 PICKET_SHOT=/tmp/shots/a PICKET_SHOT_SIZE=1120x820 \
   PICKET_PCAP_REPLAY=/tmp/sample.pcap ./target/release/picket gui
@@ -135,7 +179,3 @@ PICKET_SHOT=/tmp/shots/prog PICKET_SHOT_SIZE=1120x900 \
 
 The pictures follow the desktop's light or dark style; `ADW_DEBUG_COLOR_SCHEME=prefer-light` forces the
 light one. Copy the results into `docs/screenshots/`.
-| `PICKET_LANG=de\|en` | interface language, instead of the system's |
-| `PICKET_I18N_LOG=<file>` | every piece of text that has no English translation is appended to that file (names and addresses included) |
-export PICKET_LANG=en PICKET_DEMO=1
-

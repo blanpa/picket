@@ -56,14 +56,8 @@ All screenshots show made-up sample data (`PICKET_DEMO=1`). More in the [user gu
 Picket is developed and tested on **Ubuntu 26.04 with GNOME**. It relies on Ubuntu's tools (`apt`, `ufw`),
 so other distributions are untested and some checks will not apply there.
 
-To build you need a Rust toolchain (1.80 or newer; developed with 1.98, for example from
-[rustup](https://rustup.rs)) and the GTK development packages:
-
-```sh
-sudo apt install libgtk-4-dev libadwaita-1-dev
-```
-
-GTK 4.12 and libadwaita 1.5 or newer are needed. Each of the following is optional and enables one part:
+It needs GTK 4.12 and libadwaita 1.5 or newer, which Ubuntu 24.04, Debian 13 and Fedora 40 have. Each of
+the following is optional and enables one part:
 
 | Tool | Used for |
 |---|---|
@@ -78,7 +72,33 @@ GTK 4.12 and libadwaita 1.5 or newer are needed. Each of the following is option
 
 ## Install
 
+### From a package
+
+Download the file for your system from the [latest release](https://github.com/blanpa/picket/releases/latest):
+
+| System | File | Install with |
+|---|---|---|
+| Ubuntu 24.04 or newer, Debian 13 or newer | `picket_<version>_amd64.deb` | `sudo apt install ./picket_*_amd64.deb` |
+| Fedora 40 or newer | `picket-<version>-1.x86_64.rpm` | `sudo dnf install ./picket-*.x86_64.rpm` |
+| Any other distribution | `picket-<version>-linux-x86_64.tar.gz` | unpack it and run `./install.sh` |
+
+For ARM computers the same files exist as `arm64.deb`, `aarch64.rpm` and `linux-aarch64.tar.gz`. Afterwards
+Picket is in the application menu. `SHA256SUMS` in the release lets you check a download:
+`sha256sum -c SHA256SUMS --ignore-missing`.
+
+The `.deb` and `.rpm` packages set up the root helper for firewall changes, captures and system data
+themselves. With the `.tar.gz` nothing needs root: the program goes to `~/.local/bin`, and the window offers
+to set up the helper when it is first needed. See [the security model](docs/security-model.md) for what the
+helper is and why it exists.
+
+### From source
+
+You need a Rust toolchain (1.80 or newer; developed with 1.98, for example from [rustup](https://rustup.rs))
+and the GTK development packages:
+
 ```sh
+sudo apt install libgtk-4-dev libadwaita-1-dev
+
 git clone https://github.com/blanpa/picket.git
 cd picket
 cargo install --path .          # installs ~/.cargo/bin/picket
@@ -86,8 +106,7 @@ picket install-desktop          # adds Picket to the application menu
 sudo ~/.cargo/bin/picket install-helper   # once: root helper for firewall, capture and system data
 ```
 
-The last step is optional; the window offers it the first time it is needed. See
-[the security model](docs/security-model.md) for what the helper is and why it exists.
+The last step is optional; the window offers it the first time it is needed.
 
 To build without the window (terminal and browser dashboard only, no GTK needed):
 

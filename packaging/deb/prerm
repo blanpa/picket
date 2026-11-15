@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+# Take the root helper along when the package is removed (not on an upgrade).
+if [ "$1" = "remove" ]; then
+    /usr/bin/picket remove-helper >/dev/null 2>&1 || true
+fi

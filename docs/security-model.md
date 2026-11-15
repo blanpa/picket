@@ -33,6 +33,9 @@ Instead, a copy is installed once:
 sudo picket install-helper
 ```
 
+The `.deb` and `.rpm` packages run this step when they are installed, and remove the copy again when they
+are removed.
+
 - The copy lives at `/usr/local/libexec/picket-helper` and belongs to root.
 - A polkit rule (`/usr/share/polkit-1/actions/io.github.blanpa.Picket.policy`) names exactly that file.
   The window asks polkit to start it, and polkit shows the password dialog. The authorisation is kept for a
