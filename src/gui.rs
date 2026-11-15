@@ -8,7 +8,7 @@ use crate::net::{self, Exposure, NetSnapshot, Zone};
 use crate::i18n::tr;
 use crate::scan::{self, ScanInfo, ScanJob};
 use crate::session::{self, Session};
-use crate::{accept, blocklist, capture, checks, deep, devices, docker, fixes, fwctl, geo, graph, helper, history, osv, pcap, privileged, report, util, watch, APP_ID};
+use crate::{accept, blocklist, capture, checks, deep, devices, docker, fixes, fwctl, geo, graph, helper, history, osv, pcap, privileged, report, tray, util, watch, APP_ID};
 use adw::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
@@ -484,6 +484,8 @@ struct CapView {
 
 struct Extras {
     watch: adw::SwitchRow,
+    tray: adw::SwitchRow,
+    autostart: adw::SwitchRow,
     geo: adw::ActionRow,
     blocklist: adw::ActionRow,
     updating: Cell<bool>,
@@ -561,6 +563,10 @@ pub struct Ui {
     report: RefCell<Option<Report>>,
     scan: ScanView,
     busy: Cell<bool>,
+    /// The icon in the top bar; None when the session has no D-Bus.
+    tray: Option<tray::Tray>,
+    /// Set when the program is to end, not just the window to be put away.
+    quitting: Cell<bool>,
 }
 
 impl Ui {
@@ -698,6 +704,20 @@ impl Ui {
             settings.add(row);
         }
         pages["settings"].append(&settings);
+
+        let tray_row = adw::SwitchRow::new();
+        tray_row.set_title(tr("Symbol in der oberen Leiste").as_str());
+        tray_row.set_subtitle(tr("Zeigt, ob etwas kritisch ist. Picket läuft dann weiter, wenn das Fenster geschlossen wird; „Beenden“ im Menü des Symbols schließt es ganz.").as_str());
+        tray_row.set_active(tray::enabled());
+        let autostart_row = adw::SwitchRow::new();
+        autostart_row.set_title(tr("Beim Anmelden starten").as_str());
+        autostart_row.set_subtitle(tr("Ohne Fenster, nur mit dem Symbol in der Leiste").as_str());
+        autostart_row.set_active(tray::autostart());
+        autostart_row.set_sensitive(tray::enabled());
+        let background = group("Im Hintergrund", None);
+        background.add(&tray_row);
+        background.add(&autostart_row);
+        pages["settings"].append(&background);
 
         // docker
         let docker_group = group("Laufende Container", Some("Aufklappen zeigt die Ports. Offene Ports lassen sich mit der angezeigten Zeile auf den Laptop beschränken."));
@@ -1119,7 +1139,7 @@ impl Ui {
                 loading: Cell::new(false),
                 loaded: Cell::new(false),
             },
-            extras: Extras { watch: watch_row, geo: geo_row, blocklist: block_row, updating: Cell::new(false) },
+            extras: Extras { watch: watch_row, tray: tray_row, autostart: autostart_row, geo: geo_row, blocklist: block_row, updating: Cell::new(false) },
             docker: DockerView {
                 group: docker_group,
                 rows: RefCell::new(Vec::new()),
@@ -1186,6 +1206,8 @@ impl Ui {
                 available,
             },
             busy: Cell::new(false),
+            tray: app.dbus_connection().and_then(|bus| tray::Tray::new(&bus, tray::enabled())),
+            quitting: Cell::new(false),
         });
 
         // ---- signals
@@ -1285,7 +1307,7 @@ impl Ui {
             add("refresh", &["<Ctrl>r", "F5"], Box::new(|ui| ui.refresh()));
             add("export", &["<Ctrl>s"], Box::new(|ui| ui.export_report()));
             add("settings", &["<Ctrl>comma"], Box::new(|ui| ui.go_to("settings")));
-            add("quit", &["<Ctrl>q"], Box::new(|ui| ui.window.close()));
+            add("quit", &["<Ctrl>q"], Box::new(|ui| ui.quit()));
             add(
                 "about",
                 &[],
@@ -1317,6 +1339,67 @@ impl Ui {
         {
             let ui2 = ui.clone();
             ui.dev.button.connect_clicked(move |_| ui2.load_devices(true));
+        }
+        if let Some(icon) = &ui.tray {
+            // What the icon in the top bar offers.
+            let weak = Rc::downgrade(&ui);
+            icon.connect(move |action| {
+                let Some(ui) = weak.upgrade() else { return };
+                match action {
+                    tray::Action::Open => ui.window.present(),
+                    tray::Action::Check => ui.refresh(),
+                    tray::Action::Quit => ui.quit(),
+                }
+            });
+        }
+        {
+            // With the icon in the top bar, closing the window only puts it away. This handler
+            // comes before the ones that tidy up, so a scan or a capture keeps running then.
+            let weak = Rc::downgrade(&ui);
+            ui.window.connect_close_request(move |window| {
+                let Some(ui) = weak.upgrade() else { return glib::Propagation::Proceed };
+                if !ui.quitting.get() && ui.tray.as_ref().is_some_and(|icon| icon.is_shown()) {
+                    window.set_visible(false);
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            });
+        }
+        {
+            let ui2 = ui.clone();
+            ui.extras.tray.connect_active_notify(move |sw| {
+                let on = sw.is_active();
+                if let Err(e) = tray::save_enabled(on) {
+                    ui2.toast(&e);
+                }
+                if let Some(icon) = &ui2.tray {
+                    icon.set_enabled(on);
+                }
+                // Starting unseen at login only makes sense with the icon.
+                ui2.extras.autostart.set_sensitive(on);
+                if !on {
+                    ui2.extras.autostart.set_active(false);
+                }
+            });
+            let ui2 = ui.clone();
+            ui.extras.autostart.connect_active_notify(move |sw| {
+                if sw.is_active() != tray::autostart() {
+                    if let Err(e) = tray::set_autostart(sw.is_active()) {
+                        ui2.toast(&e);
+                    }
+                }
+            });
+        }
+        {
+            // Put away in the top bar, the icon should still tell the truth: check again now and then.
+            let weak = Rc::downgrade(&ui);
+            glib::timeout_add_seconds_local(600, move || {
+                let Some(ui) = weak.upgrade() else { return glib::ControlFlow::Break };
+                if !ui.window.is_visible() {
+                    ui.refresh();
+                }
+                glib::ControlFlow::Continue
+            });
         }
         {
             let ui2 = ui.clone();
@@ -1539,10 +1622,12 @@ impl Ui {
                 };
                 // On the page every 5 s; otherwise every 15 s, so that connections
                 // opened and closed in the meantime still show up as "beendet".
+                // With the window put away in the top bar, once a minute is enough.
                 let on_page = ui.stack.visible_child_name().as_deref() == Some("network") && ui.window.is_active();
                 let tick = ui.net.ticks.get().wrapping_add(1);
                 ui.net.ticks.set(tick);
-                if ui.net.live.is_active() && (on_page || tick % 3 == 0) {
+                let every = if ui.window.is_visible() { 3 } else { 12 };
+                if ui.net.live.is_active() && (on_page || tick % every == 0) {
                     ui.load_net();
                 }
                 glib::ControlFlow::Continue
@@ -1600,7 +1685,7 @@ impl Ui {
                         let _ = renderer.render_texture(&node, None).save_to_png(format!("{prefix}-dialog.png"));
                     }
                 }
-                ui.window.close();
+                ui.quit();
                 return glib::ControlFlow::Break;
             }
             ui.sidebar.select_row(ui.sidebar.row_at_index(i as i32).as_ref());
@@ -1630,6 +1715,12 @@ impl Ui {
         self.toasts.add_toast(adw::Toast::new(tr(text).as_str()));
     }
 
+    /// End the program, also when the window would otherwise only be put away.
+    fn quit(&self) {
+        self.quitting.set(true);
+        self.window.close();
+    }
+
     // ------------------------------------------------------------ report
 
     fn refresh(self: &Rc<Self>) {
@@ -1656,6 +1747,14 @@ impl Ui {
         self.banner.set_revealed(!r.privileged.available);
         self.render_firewall();
         *self.report.borrow_mut() = Some(r.clone());
+        if let Some(icon) = &self.tray {
+            let summary = if r.counts.crit + r.counts.warn == 0 {
+                "Keine kritischen Befunde oder Warnungen".to_string()
+            } else {
+                format!("{} kritisch · {} Warnungen", r.counts.crit, r.counts.warn)
+            };
+            icon.set_status(&summary, r.counts.crit > 0);
+        }
         self.render_extras();
         self.load_docker();
         let (weak, weak2) = (Rc::downgrade(self), Rc::downgrade(self));
@@ -2645,7 +2744,7 @@ impl Ui {
             self.toast("Der Bericht ist noch nicht fertig.");
             return;
         };
-        let dialog = gtk::FileDialog::builder().title(tr("Bericht speichern").as_str()).initial_name("sicherheitsbericht.html").build();
+        let dialog = gtk::FileDialog::builder().title(tr("Bericht speichern").as_str()).initial_name(tr("sicherheitsbericht.html").as_str()).build();
         let ui = self.clone();
         dialog.save(Some(&self.window), gio::Cancellable::NONE, move |result| {
             let Some(path) = result.ok().and_then(|f| f.path()) else { return };
@@ -3458,7 +3557,7 @@ impl Ui {
     }
 
     fn save_capture(self: &Rc<Self>) {
-        let dialog = gtk::FileDialog::builder().title(tr("Mitschnitt speichern").as_str()).initial_name("mitschnitt.pcap").build();
+        let dialog = gtk::FileDialog::builder().title(tr("Mitschnitt speichern").as_str()).initial_name(tr("mitschnitt.pcap").as_str()).build();
         let ui = self.clone();
         dialog.save(Some(&self.window), gio::Cancellable::NONE, move |result| {
             let Some(path) = result.ok().and_then(|f| f.path()) else { return };
@@ -3558,7 +3657,8 @@ impl Ui {
     }
 }
 
-pub fn run() -> std::process::ExitCode {
+/// Open the window. With `background`, start put away: only the icon in the top bar appears.
+pub fn run(background: bool) -> std::process::ExitCode {
     // The screenshot test aid runs beside an already open window instead of handing over to it.
     let flags = if std::env::var_os("PICKET_SHOT").is_some() {
         gio::ApplicationFlags::NON_UNIQUE
@@ -3574,14 +3674,24 @@ pub fn run() -> std::process::ExitCode {
             gtk::style_context_add_provider_for_display(&display, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         }
     });
-    app.connect_activate(|app| {
+    app.connect_activate(move |app| {
         // A second launch just brings the existing window to the front.
         if let Some(w) = app.active_window() {
             w.present();
             return;
         }
         let ui = Ui::build(app);
-        ui.window.present();
+        if background {
+            // Nothing to see without the icon: give the desktop a moment to take it, then give up.
+            let unseen = ui.clone();
+            glib::timeout_add_seconds_local_once(30, move || {
+                if !unseen.window.is_visible() && !unseen.tray.as_ref().is_some_and(|icon| icon.is_shown()) {
+                    unseen.quit();
+                }
+            });
+        } else {
+            ui.window.present();
+        }
         ui.refresh();
         ui.load_net();
         if let Some(prefix) = std::env::var("PICKET_SHOT").ok().filter(|p| !p.is_empty()) {

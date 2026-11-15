@@ -28,6 +28,8 @@ mod graph;
 mod gui;
 #[cfg(feature = "gui")]
 mod session;
+#[cfg(feature = "gui")]
+mod tray;
 mod model;
 mod net;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
@@ -85,6 +87,7 @@ OPTIONEN
   --json         Ausgabe als JSON (check, net, devices)
   --scan         Alle Adressen des lokalen Netzes ansprechen (devices)
   --all          Auch unauffällige Prüfungen ausführlich zeigen (check)
+  --background   Ohne Fenster starten, nur mit dem Symbol in der oberen Leiste (gui)
 
 Das Programm liest nur. Einzige Ausnahme: Firewall-Regeln, die du im App-Fenster
 selbst setzt und mit deinem Passwort bestätigst.";
@@ -284,7 +287,7 @@ fn run_scan_cli(path: &str) -> ExitCode {
 }
 
 /// The launcher entry. English is the default; the desktop picks the `[de]` lines on a German system.
-fn desktop_entry(exe: &str) -> String {
+fn desktop_entry(exe: &str, arguments: &str) -> String {
     // Desktop-entry quoting: wrap in double quotes and escape the reserved characters.
     let quoted: String = exe.chars().flat_map(|c| match c {
         '"' | '`' | '$' | '\\' => vec!['\\', c],
@@ -295,7 +298,7 @@ fn desktop_entry(exe: &str) -> String {
          GenericName=Security Check\nGenericName[de]=Sicherheitsprüfung\n\
          Comment=Check the firewall, antivirus, updates and network of this laptop\n\
          Comment[de]=Firewall, Virenscanner, Updates und Netzwerk des Laptops prüfen\n\
-         Exec=\"{quoted}\" gui\nIcon={APP_ID}\nTerminal=false\nCategories=System;Security;GTK;\n\
+         Exec=\"{quoted}\" {arguments}\nIcon={APP_ID}\nTerminal=false\nCategories=System;Security;GTK;\n\
          Keywords=Security;Firewall;Antivirus;Network;Updates;\n\
          Keywords[de]=Sicherheit;Firewall;Virenscanner;Netzwerk;Updates;Security;\nStartupNotify=true\n"
     )
@@ -309,7 +312,7 @@ fn install_desktop() -> Result<(), String> {
         .unwrap_or_else(|| util::home().join(".local/share"));
     let apps = data.join("applications");
     let icons = data.join("icons/hicolor/scalable/apps");
-    let entry = desktop_entry(&util::self_exe());
+    let entry = desktop_entry(&util::self_exe(), "gui");
     for (dir, name, content) in [
         (&apps, format!("{APP_ID}.desktop"), entry.as_str()),
         (&icons, format!("{APP_ID}.svg"), ICON_SVG),
@@ -334,14 +337,15 @@ fn install_desktop() -> Result<(), String> {
     Ok(())
 }
 
-fn start_gui() -> ExitCode {
+fn start_gui(background: bool) -> ExitCode {
+    let _ = background;
     if util::uid() == 0 {
         crate::errln!("Die App bitte nicht als root starten.");
         return ExitCode::from(2);
     }
     #[cfg(feature = "gui")]
     {
-        gui::run()
+        gui::run(background)
     }
     #[cfg(not(feature = "gui"))]
     {
@@ -354,7 +358,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut positional: Vec<&str> = Vec::new();
     let (mut port, mut open, mut json, mut all) = (None, true, false, false);
-    let (mut dry_run, mut scan_net) = (false, false);
+    let (mut dry_run, mut scan_net, mut background) = (false, false, false);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -370,6 +374,7 @@ fn main() -> ExitCode {
             "--all" => all = true,
             "--dry-run" => dry_run = true,
             "--scan" => scan_net = true,
+            "--background" => background = true,
             "-h" | "--help" | "help" => {
                 crate::outln!("{HELP}");
                 return ExitCode::SUCCESS;
@@ -461,10 +466,10 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
-        [] | ["gui"] => start_gui(),
+        [] | ["gui"] => start_gui(background),
         // For packaging: the launcher entry of a system-wide installation.
         ["desktop-entry"] => {
-            print!("{}", desktop_entry("/usr/bin/picket"));
+            print!("{}", desktop_entry("/usr/bin/picket", "gui"));
             ExitCode::SUCCESS
         }
         ["install-desktop"] => match install_desktop() {

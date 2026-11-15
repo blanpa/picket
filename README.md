@@ -37,6 +37,8 @@ The interface follows the system language: German on a German system, English ev
   first.
 - **Keeps watch in the background.** An optional watcher sends a desktop notification when something
   changes: a new open port, a new device, a program that goes online for the first time, a new warning.
+- **Sits in the top bar.** An icon shows whether anything is critical and brings the window back. Picket
+  can start with your session, with only that icon.
 - **Digs deeper on request.** Secrets in plain-text files, autostart entries, set-uid files, modified system
   binaries, a Lynis audit, known vulnerabilities in container images (Trivy) and in cargo/pip/npm packages.
 
@@ -136,6 +138,7 @@ Everything is also available in the terminal:
 | `picket report` | The report as a standalone HTML page |
 | `picket update-data` | Download the country database and the domain blocklist |
 | `picket serve` | The browser dashboard on `127.0.0.1` |
+| `picket gui --background` | Start without a window, only with the icon in the top bar |
 
 Run `picket help` for the full list. `PICKET_LANG=de` or `PICKET_LANG=en` overrides the language.
 

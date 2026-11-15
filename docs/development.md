@@ -27,6 +27,7 @@ Interface text is written in German in the code and translated to English when i
 | `src/gui.rs` | the GTK4/libadwaita window |
 | `src/graph.rs` | the live connection diagram and the throughput chart (cairo) |
 | `src/session.rs` | what the window has seen since it opened, including closed connections |
+| `src/tray.rs` | the icon in the top bar (StatusNotifierItem and its menu, over GIO's D-Bus) and starting at login |
 | `src/model.rs` | findings, statuses, the report |
 | `src/checks/` | the checks, one file per area; each returns a list of findings |
 | `src/net.rs` | interfaces, listening sockets and connections from `ss`/`ip`, classified by zone |

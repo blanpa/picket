@@ -155,12 +155,16 @@ pub fn plural(n: usize, one: &str, many: &str) -> String {
     }
 }
 
-/// Path of this executable, for commands shown to the user.
+/// Path of this executable, for commands shown to the user and for entries that start it later.
 pub fn self_exe() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.to_str().map(String::from))
-        .unwrap_or_else(|| "picket".into())
+    let path = std::env::current_exe().ok().and_then(|p| p.to_str().map(String::from)).unwrap_or_else(|| "picket".into());
+    without_deleted_mark(&path).to_string()
+}
+
+/// When the program file is replaced while the program runs (an update), Linux reports the
+/// running one as "<path> (deleted)". The new file is at the same place.
+fn without_deleted_mark(path: &str) -> &str {
+    path.strip_suffix(" (deleted)").unwrap_or(path)
 }
 
 pub fn random_token() -> String {
@@ -209,7 +213,6 @@ pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// Human-readable size, e.g. "3,4 MB".
 /// A number written with a decimal point, as the interface language writes it.
 pub fn decimal(number: String) -> String {
     if crate::i18n::german() {
@@ -219,6 +222,7 @@ pub fn decimal(number: String) -> String {
     }
 }
 
+/// Human-readable size, e.g. "3,4 MB".
 pub fn format_bytes(n: u64) -> String {
     let n = n as f64;
     if n >= 1e9 {
@@ -246,5 +250,16 @@ pub fn migrate_legacy_dirs() {
         if old.is_dir() && !new.exists() {
             let _ = std::fs::rename(&old, &new);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_program_path_survives_an_update() {
+        assert_eq!(without_deleted_mark("/home/x/.cargo/bin/picket (deleted)"), "/home/x/.cargo/bin/picket");
+        assert_eq!(without_deleted_mark("/usr/bin/picket"), "/usr/bin/picket");
     }
 }

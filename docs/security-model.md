@@ -116,11 +116,12 @@ café or company network on its own.
 
 | Where | What |
 |---|---|
-| `~/.local/state/picket/` | accepted findings, known devices and their names, watcher state and events, scan results, the Lynis report, and `history/`: connections per day for 30 days |
-| `~/.local/share/picket/` | the country database and the blocklist |
-| `~/.cache/picket/` | the current capture, until the window closes |
+| `~/.local/state/picket/` | accepted findings, known devices and their names, watcher state and events, scan results, the Lynis report, whether the icon in the top bar is on, and `history/`: connections per day for 30 days |
+| `~/.local/share/picket/` | the country database, the blocklist and the icon for the top bar |
+| `~/.cache/picket/` | the current capture, until Picket ends |
 | `/run/picket/` | the root data, until reboot |
 | `~/.config/systemd/user/picket-watch.*` | the watcher's timer, while it is switched on |
+| `~/.config/autostart/io.github.blanpa.Picket.desktop` | starting at login, while that is switched on |
 | `<compose file>.picket-sicherung` | the previous version of a compose file Picket changed |
 
 The connection history records which program talked to which address. It stays on the machine.

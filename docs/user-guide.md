@@ -131,7 +131,7 @@ in a DNS query, the server name in a TLS handshake, the first line of an unencry
 - **Save as .pcap** saves the raw capture, for example to open it in Wireshark.
 
 The content of HTTPS connections is encrypted and stays unreadable. A capture stops when you stop it, when
-you close the window, after 15 minutes or after 200,000 packets.
+Picket ends, after 15 minutes or after 200,000 packets.
 
 ### Docker
 
@@ -172,7 +172,24 @@ operator. Recording only happens while the watcher is on.
 - **Watcher in the background**: see below.
 - The country database and the domain blocklist: download or refresh them.
 - **Save report**: all findings as an HTML page.
+- **Icon in the top bar** and **Start at login**: see below.
 - Options for the connections page.
+
+## The icon in the top bar
+
+While Picket runs, its logo sits in the top bar next to the icons of other programs. A red mark on it means
+that the last check found something critical.
+
+- Click the icon to bring the window back or to open its menu, depending on the desktop. The menu shows the
+  result of the last check and offers *Open Picket*, *Check again* and *Quit*.
+- With the icon, closing the window only puts it away: Picket keeps running, checks again every ten minutes
+  and keeps the icon up to date. A virus scan or a capture that is running continues. *Quit* in the menu
+  (or `Ctrl+Q`) ends the program.
+- **Start at login** starts Picket with your session, without a window.
+- Switch the icon off under *Settings* and closing the window ends Picket as before.
+
+The icon needs a desktop that shows such icons. Ubuntu does; on plain GNOME the *AppIndicator* extension
+adds them. Without it nothing changes: there is no icon, and closing the window ends Picket.
 
 ## The watcher
 
