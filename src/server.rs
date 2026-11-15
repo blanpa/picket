@@ -18,6 +18,110 @@ use std::sync::{Arc, Mutex};
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
+
+/// The dashboard page is written in German. For English, each German piece is replaced;
+/// the pieces carry enough of their surroundings (quotes, tags) to match only where meant.
+#[rustfmt::skip]
+const DASHBOARD_EN: &[(&str, &str)] = &[
+    ("<html lang=\"de\">", "<html lang=\"en\">"),
+    ("toLocaleTimeString(\"de-DE\"", "toLocaleTimeString(\"en-GB\""),
+    ("aria-label=\"Zusammenfassung\"", "aria-label=\"Summary\""),
+    (">Wird geprüft …<", ">Checking …<"),
+    (">Neu prüfen<", ">Check again<"),
+    ("\"Neu prüfen\"", "\"Check again\""),
+    ("System wird geprüft – das dauert einige Sekunden …", "Checking the system – this takes a few seconds …"),
+    ("label: \"Kritisch\", plural: \"Kritisch\"", "label: \"Critical\", plural: \"Critical\""),
+    ("label: \"Warnung\", plural: \"Warnungen\"", "label: \"Warning\", plural: \"Warnings\""),
+    ("label: \"Unklar\", plural: \"Unklar\"", "label: \"Unclear\", plural: \"Unclear\""),
+    ("label: \"Hinweis\", plural: \"Hinweise\"", "label: \"Note\", plural: \"Notes\""),
+    ("plural: \"In Ordnung\"", "plural: \"OK\""),
+    ("\"Netzwerk\"]", "\"Network\"]"),
+    ("\"Virenscanner\"]", "\"Antivirus\"]"),
+    ("\"Programme & Updates\"]", "\"Programs & updates\"]"),
+    ("\"System & Firmware\"]", "\"System & firmware\"]"),
+    ("\"Konten & Zugang\"]", "\"Accounts & access\"]"),
+    ("\"Übersicht\"]", "\"Overview\"]"),
+    ("\"Server außerhalb deines Netzes\"", "\"Servers outside your network\""),
+    ("label: \"Lokales Netz\"", "label: \"Local network\""),
+    ("\"Router, NAS, Drucker, andere Geräte\"", "\"Router, NAS, printers, other devices\""),
+    ("\"Tailscale, WireGuard & Co.\"", "\"Tailscale, WireGuard & co.\""),
+    ("\"Docker, virtuelle Maschinen\"", "\"Docker, virtual machines\""),
+    ("\"Nur dieser Rechner\"", "\"This computer only\""),
+    ("\"Programme untereinander\"", "\"Programs among themselves\""),
+    ("all: \"Alle Netze\", lan: \"Lokales Netz\"", "all: \"All networks\", lan: \"Local network\""),
+    ("loopback: \"Nur lokal\"", "loopback: \"Local only\""),
+    ("`Fehler ${", "`Error ${"),
+    (">Kopieren<", ">Copy<"),
+    ("\"Kopieren\"", "\"Copy\""),
+    ("\"Kopiert\"", "\"Copied\""),
+    ("\"Nicht möglich\"", "\"Not possible\""),
+    ("<h3>Empfehlung</h3>", "<h3>Recommendation</h3>"),
+    ("Keine weiteren Details.", "No further details."),
+    ("`Stand ${", "`As of ${"),
+    ("Root-Snapshot von ${timeStr(r.privileged.created)} wird verwendet (Firewall-Regeln, Prozessnamen, Passwortprüfung).", "Using the root snapshot of ${timeStr(r.privileged.created)} (firewall rules, process names, password check)."),
+    ("Einige Prüfungen brauchen Root-Rechte (Firewall-Regeln, Prozessnamen fremder Ports, leere Passwörter).", "Some checks need root rights (firewall rules, process names of other users' ports, empty passwords)."),
+    ("Einmal im Terminal ausführen und danach „Neu prüfen“:", "Run once in the terminal, then “Check again”:"),
+    ("Keine kritischen Befunde oder Warnungen. 👍", "No critical findings or warnings. 👍"),
+    ("<h2>Bereiche</h2>", "<h2>Areas</h2>"),
+    ("Dieses Werkzeug liest nur und ändert nichts am System. Die vorgeschlagenen Befehle führst du selbst im Terminal aus.", "This tool only reads and changes nothing on the system. You run the suggested commands yourself in the terminal."),
+    ("<h2>Prüfungen</h2>", "<h2>Checks</h2>"),
+    ("Keine Prüfungen in diesem Bereich.", "No checks in this area."),
+    ("\"System / anderer Benutzer\"", "\"System / other user\""),
+    ("\"unbekannt (anderer Benutzer)\"", "\"unknown (other user)\""),
+    ("Verbindungen werden gelesen …", "Reading connections …"),
+    ("${t.hosts} Gegenstellen · ${t.programs} Programme", "${t.hosts} peers · ${t.programs} programs"),
+    ("Keine Verbindungen in dieser Zone.", "No connections in this zone."),
+    ("\"eingehend\" : \"ausgehend\"", "\"incoming\" : \"outgoing\""),
+    ("} Prozesse</span>", "} processes</span>"),
+    ("Wohin gehen die Verbindungen?", "Where do the connections go?"),
+    ("\"Pausiert\"", "\"Paused\""),
+    ("\"Pausieren\" : \"Fortsetzen\"", "\"Pause\" : \"Resume\""),
+    ("– nochmal klicken zum Aufheben.", "– click again to clear."),
+    ("Kachel anklicken, um nach Ziel zu filtern. Zahl = aktive Verbindungen.", "Click a tile to filter by destination. Number = active connections."),
+    ("> Hostnamen auflösen<", "> Resolve host names<"),
+    ("<th>Programm</th>", "<th>Program</th>"),
+    ("Keine aktiven Verbindungen.", "No active connections."),
+    ("→ ausgehend, ← eingehend. Verbindungen aus Docker-Containern und VMs laufen über das Netz des Laptops,", "→ outgoing, ← incoming. Connections from Docker containers and VMs run over the laptop's network,"),
+    ("erscheinen hier aber nicht als eigene Programme. Ohne Root-Snapshot fehlen die Namen von Systemprozessen.", "but do not appear here as programs of their own. Without a root snapshot the names of system processes are missing."),
+    ("Offene Ports – wer kann diesen Laptop erreichen?", "Open ports – who can reach this laptop?"),
+    ("<th>Dienst</th>", "<th>Service</th>"),
+    ("> Auch nur lokal erreichbare Ports zeigen (", "> Also show ports reachable locally only ("),
+    ("<th>Erreichbar aus</th>", "<th>Reachable from</th>"),
+    ("<th>Adresse</th>", "<th>Address</th>"),
+    ("Keine von außen erreichbaren Ports.", "No ports reachable from outside."),
+    ("<strong>Netzwerkschnittstellen</strong>", "<strong>Network interfaces</strong>"),
+    ("} aktiv)</span>", "} active)</span>"),
+    ("<th>Art</th><th>Adressen</th>", "<th>Type</th><th>Addresses</th>"),
+    ("`Netzwerkdaten: ${", "`Network data: ${"),
+    ("ClamAV ist nicht installiert – ein Scan ist nicht möglich.", "ClamAV is not installed – a scan is not possible."),
+    ("Scan läuft seit ${", "Scan running for ${"),
+    ("Dateien geprüft", "files checked"),
+    ("Fund(e)", "found"),
+    ("Signaturen werden geladen …", "Loading signatures …"),
+    ("\"Scan abgebrochen\"", "\"Scan cancelled\""),
+    ("\"Keine Funde\"", "\"Nothing found\""),
+    ("} nicht lesbar`", "} not readable`"),
+    ("Das Tool löscht nichts. Prüfe die Dateien und entferne sie selbst; Fehlalarme kommen vor.", "The tool deletes nothing. Check the files and remove them yourself; false alarms happen."),
+    ("<h2>Virenscan starten</h2>", "<h2>Start a virus scan</h2>"),
+    (">Abbrechen<", ">Cancel<"),
+    (">Scan starten<", ">Start scan<"),
+    ("Der Scan läuft mit niedriger Priorität; ClamAV braucht dabei etwa 1 GB Arbeitsspeicher.", "The scan runs with low priority; ClamAV needs about 1 GB of memory while it runs."),
+    ("\"Prüfe …\"", "\"Checking …\""),
+    ("`Bericht konnte nicht geladen werden: ${", "`The report could not be loaded: ${"),
+];
+
+fn english_page(page: &str) -> String {
+    DASHBOARD_EN.iter().fold(page.to_string(), |page, (german, english)| page.replace(german, english))
+}
+
+/// The dashboard page in the interface language.
+fn index_html() -> String {
+    if crate::i18n::german() {
+        INDEX_HTML.to_string()
+    } else {
+        english_page(INDEX_HTML)
+    }
+}
 const DEFAULT_PORT: u16 = 7373;
 
 struct State {
@@ -50,7 +154,7 @@ fn respond(req: Request, code: u16, content_type: &str, body: String) {
 }
 
 fn json(req: Request, value: &impl serde::Serialize) {
-    match serde_json::to_string(value) {
+    match crate::i18n::json(value, false) {
         Ok(s) => respond(req, 200, "application/json; charset=utf-8", s),
         Err(e) => error(req, 500, &e.to_string()),
     }
@@ -153,7 +257,7 @@ fn handle(mut req: Request, st: &State) {
                 "Zugriff verweigert. Bitte die vollständige Adresse aus dem Terminal verwenden (mit ?t=…).".into(),
             );
         }
-        return respond(req, 200, "text/html; charset=utf-8", INDEX_HTML.to_string());
+        return respond(req, 200, "text/html; charset=utf-8", index_html());
     }
 
     if !path.starts_with("/api/") {
@@ -230,7 +334,7 @@ pub fn serve(port: Option<u16>, open: bool) -> Result<(), String> {
         dns: Mutex::new(HashMap::new()),
     });
     let url = format!("http://127.0.0.1:{port}/?t={}", state.token);
-    println!("Sicherheits-Dashboard läuft (nur auf diesem Rechner erreichbar):\n\n  {url}\n\nBeenden mit Strg+C.");
+    crate::outln!("Sicherheits-Dashboard läuft (nur auf diesem Rechner erreichbar):\n\n  {url}\n\nBeenden mit Strg+C.");
     if open {
         if let Some(x) = util::which("xdg-open") {
             let _ = std::process::Command::new(x)
@@ -264,6 +368,17 @@ pub fn serve(port: Option<u16>, open: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_english_dashboard_covers_the_page() {
+        for (german, _) in DASHBOARD_EN {
+            assert!(INDEX_HTML.contains(german), "nicht mehr in index.html: {german}");
+        }
+        // No German left over: the page has no umlauts outside its German texts.
+        let page = english_page(INDEX_HTML);
+        let left: Vec<&str> = page.lines().filter(|l| l.contains(['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü'])).collect();
+        assert!(left.is_empty(), "noch deutsch: {left:#?}");
+    }
 
     #[test]
     fn parses_query() {

@@ -18,7 +18,8 @@ that the installed helper is outdated and asks to install it again.
 
 ## Layout
 
-Interface text is German; code, comments and commit messages are English.
+Interface text is written in German in the code and translated to English when it is shown (see
+[Languages](#languages)). Code, comments and commit messages are English.
 
 | File | Role |
 |---|---|
@@ -43,6 +44,7 @@ Interface text is German; code, comments and commit messages are English.
 | `src/report.rs` | HTML export |
 | `src/server.rs`, `assets/index.html` | the browser dashboard |
 | `src/demo.rs` | sample data for demo mode |
+| `src/i18n.rs`, `src/i18n_en.rs` | the interface language: the translator and the German-to-English table |
 | `src/util.rs` | running tools with a timeout, paths, small helpers |
 
 ### Conventions
@@ -58,6 +60,36 @@ Interface text is German; code, comments and commit messages are English.
   their commands from validated parts.
 
 ## Tests
+## Languages
+
+The interface follows the system language (`LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`): German when it
+starts with `de`, English otherwise. `PICKET_LANG=de` or `PICKET_LANG=en` overrides it.
+
+The German text in the code is the original, and everything that is stored (accepted findings, watcher
+state, history) stays German. Text is translated where it is shown: `i18n::tr()` for a string, `outln!` and
+`errln!` in place of `println!` and `eprintln!`, `Finding::localized()` for a finding, `i18n::json()` for
+JSON output. The translator looks the text up in the table in `src/i18n_en.rs`:
+
+- An entry is either a fixed string or a format template such as `"{} Dateien geprüft"`. A template is
+  matched against the finished German sentence; the values are picked out, translated themselves and put
+  into the English template. English placeholders may be reordered by name (`{n}`) or number (`{1}`).
+- What has no entry of its own is tried in parts: line by line, without its padding, a known ending
+  (`" (offline)"`), text in brackets, pieces of a list (`", "`, `" · "`, `" – "`), a count in front.
+- Text without a translation is shown in German.
+
+To add or change interface text, write it in German in the code and add the pair to `src/i18n_en.rs`:
+
+```sh
+python3 tools/i18n.py missing     # German strings in the code without an English entry
+python3 tools/i18n.py stale       # entries whose German text is no longer in the code
+PICKET_LANG=en PICKET_I18N_LOG=/tmp/untranslated.log picket check --all   # what stayed German at run time
+```
+
+`cargo test` checks that every entry has the same placeholders on both sides. Tests always run in German.
+
+The browser dashboard (`assets/index.html`) is a German page; `src/server.rs` holds the list of its
+English replacements, and a test makes sure the list matches the page.
+
 
 ```sh
 cargo test                        # all unit tests
@@ -90,16 +122,20 @@ cargo build --release
 PICKET_WRITE_SAMPLE=/tmp/sample.pcap cargo test --release writes_sample_capture
 
 # every page, 1120x820
-PICKET_DEMO=1 PICKET_SHOT=/tmp/shots/a PICKET_SHOT_SIZE=1120x820 \
+PICKET_SHOT=/tmp/shots/a PICKET_SHOT_SIZE=1120x820 \
   PICKET_PCAP_REPLAY=/tmp/sample.pcap ./target/release/picket gui
 
 # the connections page, tall enough for the diagram
-PICKET_DEMO=1 PICKET_SHOT=/tmp/shots/tall PICKET_SHOT_SIZE=1120x1180 ./target/release/picket gui
+PICKET_SHOT=/tmp/shots/tall PICKET_SHOT_SIZE=1120x1170 ./target/release/picket gui
 
 # the list of programs
-PICKET_DEMO=1 PICKET_SHOT=/tmp/shots/prog PICKET_SHOT_SIZE=1120x900 \
+PICKET_SHOT=/tmp/shots/prog PICKET_SHOT_SIZE=1120x900 \
   PICKET_SHOT_TAB=programs PICKET_SHOT_EXPAND=firefox ./target/release/picket gui
 ```
 
 The pictures follow the desktop's light or dark style; `ADW_DEBUG_COLOR_SCHEME=prefer-light` forces the
 light one. Copy the results into `docs/screenshots/`.
+| `PICKET_LANG=de\|en` | interface language, instead of the system's |
+| `PICKET_I18N_LOG=<file>` | every piece of text that has no English translation is appended to that file (names and addresses included) |
+export PICKET_LANG=en PICKET_DEMO=1
+

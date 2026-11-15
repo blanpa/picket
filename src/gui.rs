@@ -5,6 +5,7 @@
 
 use crate::model::{Category, Finding, Report, Status};
 use crate::net::{self, Exposure, NetSnapshot, Zone};
+use crate::i18n::tr;
 use crate::scan::{self, ScanInfo, ScanJob};
 use crate::session::{self, Session};
 use crate::{accept, blocklist, capture, checks, deep, devices, docker, fixes, fwctl, geo, graph, helper, history, osv, pcap, privileged, report, util, watch, APP_ID};
@@ -112,6 +113,12 @@ fn clock_fmt(epoch: u64, format: &str) -> String {
         .unwrap_or_default()
 }
 
+/// A list of choices in the interface language.
+fn string_list(items: &[&str]) -> gtk::StringList {
+    let translated: Vec<String> = items.iter().map(|s| tr(s)).collect();
+    gtk::StringList::new(&translated.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
 fn clock(epoch: u64) -> String {
     glib::DateTime::from_unix_local(epoch as i64)
         .ok()
@@ -123,7 +130,7 @@ fn clock(epoch: u64) -> String {
 // ------------------------------------------------------------------ widgets
 
 fn tag(text: &str, css: &str) -> gtk::Label {
-    let l = gtk::Label::new(Some(text));
+    let l = gtk::Label::new(Some(tr(text).as_str()));
     l.add_css_class("fw-tag");
     l.add_css_class(css);
     l.set_valign(gtk::Align::Center);
@@ -133,7 +140,7 @@ fn tag(text: &str, css: &str) -> gtk::Label {
 /// A full-width text block inside an expander row.
 fn text_row(text: &str, classes: &[&str], selectable: bool) -> gtk::ListBoxRow {
     let label = gtk::Label::builder()
-        .label(text)
+        .label(tr(text).as_str())
         .wrap(true)
         .wrap_mode(gtk::pango::WrapMode::WordChar)
         .xalign(0.0)
@@ -152,17 +159,17 @@ fn text_row(text: &str, classes: &[&str], selectable: bool) -> gtk::ListBoxRow {
 fn command_row(cmd: &str, toasts: &adw::ToastOverlay) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_use_markup(false);
-    row.set_title(cmd);
+    row.set_title(tr(cmd).as_str());
     row.set_title_lines(0);
     row.add_css_class("monospace");
     let btn = gtk::Button::from_icon_name("edit-copy-symbolic");
     btn.add_css_class("flat");
     btn.set_valign(gtk::Align::Center);
-    btn.set_tooltip_text(Some("Befehl kopieren"));
+    btn.set_tooltip_text(Some(tr("Befehl kopieren").as_str()));
     let (cmd, toasts) = (cmd.to_string(), toasts.clone());
     btn.connect_clicked(move |b| {
         b.clipboard().set_text(&cmd);
-        toasts.add_toast(adw::Toast::new("Befehl in die Zwischenablage kopiert"));
+        toasts.add_toast(adw::Toast::new(tr("Befehl in die Zwischenablage kopiert").as_str()));
     });
     row.add_suffix(&btn);
     row.set_activatable_widget(Some(&btn));
@@ -181,8 +188,8 @@ fn finding_row(f: &Finding, toasts: &adw::ToastOverlay, actions: Option<&RowActi
     let (icon, css, label) = if f.accepted { ("object-select-symbolic", "fw-z-loopback", "Akzeptiert") } else { status_style(f.status) };
     let row = adw::ExpanderRow::new();
     row.set_use_markup(false);
-    row.set_title(&f.title);
-    row.set_subtitle(&f.summary);
+    row.set_title(tr(&f.title).as_str());
+    row.set_subtitle(tr(&f.summary).as_str());
     let img = gtk::Image::from_icon_name(icon);
     img.add_css_class(css);
     row.add_prefix(&img);
@@ -209,7 +216,7 @@ fn finding_row(f: &Finding, toasts: &adw::ToastOverlay, actions: Option<&RowActi
             ("Bewusst so lassen", "Zählt und meldet dann nicht mehr – bis sich der Befund ändert.", "Akzeptieren")
         };
         let accept_row = info_row(title, subtitle);
-        let btn = gtk::Button::with_label(button);
+        let btn = gtk::Button::with_label(tr(button).as_str());
         btn.set_valign(gtk::Align::Center);
         let (accept, id, summary) = (actions.accept.clone(), f.id.clone(), (!f.accepted).then(|| f.summary.clone()));
         btn.connect_clicked(move |_| accept(id.clone(), summary.clone()));
@@ -218,7 +225,7 @@ fn finding_row(f: &Finding, toasts: &adw::ToastOverlay, actions: Option<&RowActi
     }
     if let (true, Some(on_fix)) = (fixable, actions.map(|a| &a.fix)) {
         let fix_row = info_row("Automatisch beheben", "Du siehst vorher, was genau ausgeführt wird.");
-        let btn = gtk::Button::with_label("Beheben …");
+        let btn = gtk::Button::with_label(tr("Beheben …").as_str());
         btn.add_css_class("suggested-action");
         btn.set_valign(gtk::Align::Center);
         let (on_fix, id) = (on_fix.clone(), f.id.clone());
@@ -235,8 +242,8 @@ fn finding_row(f: &Finding, toasts: &adw::ToastOverlay, actions: Option<&RowActi
 fn info_row(title: &str, subtitle: &str) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_use_markup(false);
-    row.set_title(title);
-    row.set_subtitle(subtitle);
+    row.set_title(tr(title).as_str());
+    row.set_subtitle(tr(subtitle).as_str());
     row
 }
 
@@ -264,10 +271,10 @@ fn stat_card(caption: &str, css: &str) -> StatCard {
     let root = gtk::Box::new(gtk::Orientation::Vertical, 2);
     root.add_css_class("card");
     root.add_css_class("fw-stat");
-    let number = gtk::Label::builder().label("–").xalign(0.0).build();
+    let number = gtk::Label::builder().label(tr("–").as_str()).xalign(0.0).build();
     number.add_css_class("fw-number");
     number.add_css_class(css);
-    let cap = gtk::Label::builder().label(caption).xalign(0.0).wrap(true).max_width_chars(12).build();
+    let cap = gtk::Label::builder().label(tr(caption).as_str()).xalign(0.0).wrap(true).max_width_chars(12).build();
     cap.add_css_class("heading");
     // A small natural width lets five cards share one line in a normal window.
     let sub = gtk::Label::builder().xalign(0.0).wrap(true).max_width_chars(15).build();
@@ -303,8 +310,8 @@ fn page() -> Page {
 
 fn group(title: &str, description: Option<&str>) -> adw::PreferencesGroup {
     let g = adw::PreferencesGroup::new();
-    g.set_title(title);
-    g.set_description(description);
+    g.set_title(tr(title).as_str());
+    g.set_description(description.map(tr).as_deref());
     g
 }
 
@@ -359,7 +366,7 @@ fn capture_row(
         size: format!("{} B", p.length),
         info: match &p.domain {
             Some(d) if blocklist::available() && blocklist::is_listed(d) => format!("⚠ Sperrliste · {}", p.info),
-            _ => p.info.clone(),
+            _ => tr(&p.info),
         },
     })
 }
@@ -567,7 +574,7 @@ impl Ui {
             let b = gtk::Box::new(gtk::Orientation::Horizontal, 12);
             b.set_margin_end(6);
             b.append(&gtk::Image::from_icon_name(icon));
-            b.append(&gtk::Label::builder().label(title).xalign(0.0).hexpand(true).build());
+            b.append(&gtk::Label::builder().label(tr(title).as_str()).xalign(0.0).hexpand(true).build());
             if let Some(cat) = cat {
                 let badge = gtk::Label::new(None);
                 badge.add_css_class("fw-badge");
@@ -583,7 +590,7 @@ impl Ui {
             let section = |r: &gtk::ListBoxRow| usize::try_from(r.index()).ok().and_then(|i| PAGES.get(i)).map(|p| p.4).unwrap_or("");
             let name = section(row);
             if !name.is_empty() && before.map(|b| section(b) != name).unwrap_or(true) {
-                let label = gtk::Label::builder().label(name).xalign(0.0).margin_top(14).margin_bottom(4).margin_start(10).build();
+                let label = gtk::Label::builder().label(tr(name).as_str()).xalign(0.0).margin_top(14).margin_bottom(4).margin_start(10).build();
                 label.add_css_class("caption-heading");
                 label.add_css_class("dim-label");
                 row.set_header(Some(&label));
@@ -592,11 +599,11 @@ impl Ui {
             }
         });
         let menu = gio::Menu::new();
-        menu.append(Some("Neu prüfen"), Some("app.refresh"));
-        menu.append(Some("Bericht speichern …"), Some("app.export"));
-        menu.append(Some("Einstellungen"), Some("app.settings"));
-        menu.append(Some("Info zu Picket"), Some("app.about"));
-        let menu_button = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text("Hauptmenü").build();
+        menu.append(Some(tr("Neu prüfen").as_str()), Some("app.refresh"));
+        menu.append(Some(tr("Bericht speichern …").as_str()), Some("app.export"));
+        menu.append(Some(tr("Einstellungen").as_str()), Some("app.settings"));
+        menu.append(Some(tr("Info zu Picket").as_str()), Some("app.about"));
+        let menu_button = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).tooltip_text(tr("Hauptmenü").as_str()).build();
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.pack_end(&menu_button);
         let sidebar_view = adw::ToolbarView::new();
@@ -604,7 +611,7 @@ impl Ui {
         sidebar_view.set_content(Some(
             &gtk::ScrolledWindow::builder().hscrollbar_policy(gtk::PolicyType::Never).child(&list).build(),
         ));
-        let sidebar_page = adw::NavigationPage::new(&sidebar_view, "Picket");
+        let sidebar_page = adw::NavigationPage::new(&sidebar_view, tr("Picket").as_str());
 
         // ---- content chrome
         let stack = gtk::Stack::new();
@@ -613,20 +620,20 @@ impl Ui {
         toasts.set_child(Some(&stack));
         let header = adw::HeaderBar::new();
         let refresh_btn = gtk::Button::from_icon_name("view-refresh-symbolic");
-        refresh_btn.set_tooltip_text(Some("Neu prüfen"));
+        refresh_btn.set_tooltip_text(Some(tr("Neu prüfen").as_str()));
         header.pack_start(&refresh_btn);
         let spinner = gtk::Spinner::new();
         let stamp = gtk::Label::new(None);
         stamp.add_css_class("dim-label");
         header.pack_end(&stamp);
         header.pack_end(&spinner);
-        let banner = adw::Banner::new("Einige Prüfungen brauchen Administratorrechte (Firewall-Regeln, Prozessnamen, Passwortprüfung)");
-        banner.set_button_label(Some("Freischalten"));
+        let banner = adw::Banner::new(tr("Einige Prüfungen brauchen Administratorrechte (Firewall-Regeln, Prozessnamen, Passwortprüfung)").as_str());
+        banner.set_button_label(Some(tr("Freischalten").as_str()));
         let content_view = adw::ToolbarView::new();
         content_view.add_top_bar(&header);
         content_view.add_top_bar(&banner);
         content_view.set_content(Some(&toasts));
-        let content_page = adw::NavigationPage::new(&content_view, PAGES[0].1);
+        let content_page = adw::NavigationPage::new(&content_view, tr(PAGES[0].1).as_str());
 
         let split = adw::NavigationSplitView::new();
         split.set_min_sidebar_width(230.0);
@@ -673,18 +680,18 @@ impl Ui {
 
         let settings = group("Wächter und Zusatzdaten", None);
         let watch_row = adw::SwitchRow::new();
-        watch_row.set_title("Wächter im Hintergrund");
-        watch_row.set_subtitle("Prüft alle 5 Minuten und meldet nur Änderungen: neues Gerät, neuer offener Port, neue Warnung");
+        watch_row.set_title(tr("Wächter im Hintergrund").as_str());
+        watch_row.set_subtitle(tr("Prüft alle 5 Minuten und meldet nur Änderungen: neues Gerät, neuer offener Port, neue Warnung").as_str());
         let geo_row = info_row("Länder und Anbieter der Gegenstellen", "…");
-        let geo_btn = gtk::Button::with_label("Neu laden");
+        let geo_btn = gtk::Button::with_label(tr("Neu laden").as_str());
         geo_btn.set_valign(gtk::Align::Center);
         geo_row.add_suffix(&geo_btn);
         let block_row = info_row("Sperrliste für Werbung, Tracker und Schadseiten", "…");
-        let block_btn = gtk::Button::with_label("Neu laden");
+        let block_btn = gtk::Button::with_label(tr("Neu laden").as_str());
         block_btn.set_valign(gtk::Align::Center);
         block_row.add_suffix(&block_btn);
         let export_row = info_row("Bericht speichern", "Alle Befunde als HTML-Datei, z. B. zum Ausdrucken oder Vergleichen");
-        let export_btn = gtk::Button::with_label("Speichern …");
+        let export_btn = gtk::Button::with_label(tr("Speichern …").as_str());
         export_btn.set_valign(gtk::Align::Center);
         export_row.add_suffix(&export_btn);
         for row in [watch_row.upcast_ref::<gtk::Widget>(), geo_row.upcast_ref(), block_row.upcast_ref(), export_row.upcast_ref()] {
@@ -699,7 +706,7 @@ impl Ui {
             "Bekannte Lücken in den Images",
             Some("Prüft die Images der laufenden Container mit Trivy auf bekannte Lücken (kritisch und hoch). Der erste Lauf lädt die Lücken-Datenbank."),
         );
-        let docker_scan_button = gtk::Button::builder().label("Images prüfen").valign(gtk::Align::Center).build();
+        let docker_scan_button = gtk::Button::builder().label(tr("Images prüfen").as_str()).valign(gtk::Align::Center).build();
         docker_scans.set_header_suffix(Some(&docker_scan_button));
         pages["docker"].append(&docker_scans);
 
@@ -712,7 +719,7 @@ impl Ui {
             Some("Der Wächter notiert alle 5 Minuten die offenen Verbindungen. Kurze Verbindungen dazwischen fehlen; die Datenmenge ist ein Mindestwert (nur TCP)."),
         );
         let hist_day = adw::ComboRow::new();
-        hist_day.set_title("Tag");
+        hist_day.set_title(tr("Tag").as_str());
         hist_conns.add(&hist_day);
         histp.append(&hist_conns);
 
@@ -726,12 +733,12 @@ impl Ui {
         let deep_spinner = gtk::Spinner::new();
         deep_spinner.set_visible(false);
         deep_status.add_prefix(&deep_spinner);
-        let deep_button = gtk::Button::with_label("Prüfung starten");
+        let deep_button = gtk::Button::with_label(tr("Prüfung starten").as_str());
         deep_button.add_css_class("suggested-action");
         deep_button.set_valign(gtk::Align::Center);
         deep_status.add_suffix(&deep_button);
         let cve_row = info_row("Bekannte Lücken online abgleichen", "Fragt osv.dev nach Lücken in Programmen, die mit cargo, pip oder npm installiert wurden.");
-        let cve_button = gtk::Button::with_label("Abgleichen …");
+        let cve_button = gtk::Button::with_label(tr("Abgleichen …").as_str());
         cve_button.set_valign(gtk::Align::Center);
         cve_row.add_suffix(&cve_button);
         deep_group.add(&deep_status);
@@ -747,12 +754,12 @@ impl Ui {
             Some("Änderungen werden mit ufw ausgeführt. Vor jeder Änderung siehst du den Befehl und bestätigst mit deinem Passwort."),
         );
         let fw_status = info_row("…", "");
-        let fw_toggle = gtk::Button::with_label("Einschalten");
+        let fw_toggle = gtk::Button::with_label(tr("Einschalten").as_str());
         fw_toggle.set_valign(gtk::Align::Center);
         fw_status.add_suffix(&fw_toggle);
         let fw_policy = adw::ComboRow::new();
-        fw_policy.set_title("Eingehende Verbindungen ohne passende Regel");
-        fw_policy.set_model(Some(&gtk::StringList::new(&["Blockieren (empfohlen)", "Ablehnen", "Erlauben"])));
+        fw_policy.set_title(tr("Eingehende Verbindungen ohne passende Regel").as_str());
+        fw_policy.set_model(Some(&string_list(&["Blockieren (empfohlen)", "Ablehnen", "Erlauben"])));
         fw_group.add(&fw_status);
         fw_group.add(&fw_policy);
         fwp.append(&fw_group);
@@ -760,7 +767,7 @@ impl Ui {
             "Regeln",
             Some("Ausnahmen von der Standardregel. Von Docker veröffentlichte Ports lassen sich so nicht sperren – Docker umgeht ufw."),
         );
-        let fw_add = gtk::Button::builder().label("Regel hinzufügen").valign(gtk::Align::Center).build();
+        let fw_add = gtk::Button::builder().label(tr("Regel hinzufügen").as_str()).valign(gtk::Align::Center).build();
         fw_add.add_css_class("flat");
         fw_rules.set_header_suffix(Some(&fw_add));
         fwp.append(&fw_rules);
@@ -769,7 +776,7 @@ impl Ui {
             Some("Trägt den Namen in /etc/hosts ein; Programme auf diesem Laptop erreichen ihn dann nicht mehr. Gilt für genau diesen Namen (Unterdomains einzeln) und nicht für Programme mit eigenem verschlüsseltem DNS, etwa Browser mit „sicherem DNS“."),
         );
         let fw_domain_entry = adw::EntryRow::new();
-        fw_domain_entry.set_title("Domain sperren, z. B. tracker.example.com");
+        fw_domain_entry.set_title(tr("Domain sperren, z. B. tracker.example.com").as_str());
         fw_domain_entry.set_show_apply_button(true);
         fw_domains.add(&fw_domain_entry);
         fwp.append(&fw_domains);
@@ -781,7 +788,7 @@ impl Ui {
             Some("Gezeigt werden Geräte, mit denen dieser Laptop zuletzt Kontakt hatte. „Netz durchsuchen“ spricht jede Adresse des lokalen Netzes einmal an und findet so auch stille Geräte."),
         );
         let dev_spinner = gtk::Spinner::new();
-        let dev_button = gtk::Button::builder().label("Netz durchsuchen").valign(gtk::Align::Center).build();
+        let dev_button = gtk::Button::builder().label(tr("Netz durchsuchen").as_str()).valign(gtk::Align::Center).build();
         let dev_head = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         dev_head.append(&dev_spinner);
         dev_head.append(&dev_button);
@@ -799,17 +806,17 @@ impl Ui {
         let mut cap_labels = vec!["Alle Schnittstellen".to_string()];
         cap_labels.extend(cap_ifaces.iter().skip(1).map(|n| if n.starts_with("wl") { format!("WLAN ({n})") } else { format!("Kabel ({n})") }));
         let cap_iface = adw::ComboRow::new();
-        cap_iface.set_title("Schnittstelle");
-        cap_iface.set_model(Some(&gtk::StringList::new(&cap_labels.iter().map(String::as_str).collect::<Vec<_>>())));
+        cap_iface.set_title(tr("Schnittstelle").as_str());
+        cap_iface.set_model(Some(&string_list(&cap_labels.iter().map(String::as_str).collect::<Vec<_>>())));
         let cap_host = adw::EntryRow::new();
-        cap_host.set_title("Nur diese Gegenstelle (IP-Adresse, leer = alle)");
+        cap_host.set_title(tr("Nur diese Gegenstelle (IP-Adresse, leer = alle)").as_str());
         let cap_port = adw::EntryRow::new();
-        cap_port.set_title("Nur dieser Port (leer = alle)");
+        cap_port.set_title(tr("Nur dieser Port (leer = alle)").as_str());
         let cap_proto = adw::ComboRow::new();
-        cap_proto.set_title("Protokoll");
-        cap_proto.set_model(Some(&gtk::StringList::new(&["Alle", "TCP", "UDP"])));
+        cap_proto.set_title(tr("Protokoll").as_str());
+        cap_proto.set_model(Some(&string_list(&["Alle", "TCP", "UDP"])));
         let cap_status = info_row("Bereit", "Noch kein Mitschnitt in dieser Sitzung.");
-        let cap_button = gtk::Button::with_label("Mitschnitt starten");
+        let cap_button = gtk::Button::with_label(tr("Mitschnitt starten").as_str());
         cap_button.add_css_class("suggested-action");
         cap_button.set_valign(gtk::Align::Center);
         cap_status.add_suffix(&cap_button);
@@ -820,12 +827,12 @@ impl Ui {
 
         let cap_actions = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         cap_actions.set_halign(gtk::Align::End);
-        let cap_disconnect = gtk::Button::with_label("Verbindungen trennen");
-        cap_disconnect.set_tooltip_text(Some("Beendet die bestehenden Verbindungen zur eingetragenen Gegenstelle"));
-        let cap_block = gtk::Button::with_label("Gegenstelle blockieren …");
-        cap_block.set_tooltip_text(Some("Legt eine Firewall-Regel gegen die eingetragene Gegenstelle an"));
-        let cap_save = gtk::Button::with_label("Als .pcap speichern …");
-        cap_save.set_tooltip_text(Some("Speichert den Mitschnitt, z. B. zum Öffnen in Wireshark"));
+        let cap_disconnect = gtk::Button::with_label(tr("Verbindungen trennen").as_str());
+        cap_disconnect.set_tooltip_text(Some(tr("Beendet die bestehenden Verbindungen zur eingetragenen Gegenstelle").as_str()));
+        let cap_block = gtk::Button::with_label(tr("Gegenstelle blockieren …").as_str());
+        cap_block.set_tooltip_text(Some(tr("Legt eine Firewall-Regel gegen die eingetragene Gegenstelle an").as_str()));
+        let cap_save = gtk::Button::with_label(tr("Als .pcap speichern …").as_str());
+        cap_save.set_tooltip_text(Some(tr("Speichert den Mitschnitt, z. B. zum Öffnen in Wireshark").as_str()));
         cap_save.set_sensitive(false);
         cap_actions.append(&cap_disconnect);
         cap_actions.append(&cap_block);
@@ -834,7 +841,7 @@ impl Ui {
 
         let cap_store = gio::ListStore::new::<glib::BoxedAnyObject>();
         // The search field narrows the list to rows that contain the text.
-        let cap_search = gtk::SearchEntry::builder().placeholder_text("Filtern: Name, Adresse, Protokoll …").width_request(280).valign(gtk::Align::Center).build();
+        let cap_search = gtk::SearchEntry::builder().placeholder_text(tr("Filtern: Name, Adresse, Protokoll …").as_str()).width_request(280).valign(gtk::Align::Center).build();
         let cap_filter = {
             let search = cap_search.clone();
             gtk::CustomFilter::new(move |obj| {
@@ -880,10 +887,10 @@ impl Ui {
                     return;
                 };
                 let shown = text(&obj.borrow::<CapRow>());
-                label.set_tooltip_text(Some(&shown));
-                label.set_label(&shown);
+                label.set_tooltip_text(Some(tr(&shown).as_str()));
+                label.set_label(tr(&shown).as_str());
             });
-            let column = gtk::ColumnViewColumn::new(Some(title), Some(factory));
+            let column = gtk::ColumnViewColumn::new(Some(tr(title).as_str()), Some(factory));
             column.set_expand(expand);
             column.set_resizable(true);
             if !expand {
@@ -955,17 +962,17 @@ impl Ui {
         graph_group.add(&graph_card);
 
         let live = adw::SwitchRow::new();
-        live.set_title("Live aktualisieren");
-        live.set_subtitle("Alle 5 Sekunden, solange diese Seite offen ist");
+        live.set_title(tr("Live aktualisieren").as_str());
+        live.set_subtitle(tr("Alle 5 Sekunden, solange diese Seite offen ist").as_str());
         live.set_active(true);
         let resolve = adw::SwitchRow::new();
-        resolve.set_title("Hostnamen auflösen");
-        resolve.set_subtitle("Fragt den DNS-Server nach den Namen der Gegenstellen");
-        live.set_subtitle("Alle 5 Sekunden; bei anderer Seite oder im Hintergrund alle 15 Sekunden, damit nichts unbemerkt bleibt");
+        resolve.set_title(tr("Hostnamen auflösen").as_str());
+        resolve.set_subtitle(tr("Fragt den DNS-Server nach den Namen der Gegenstellen").as_str());
+        live.set_subtitle(tr("Alle 5 Sekunden; bei anderer Seite oder im Hintergrund alle 15 Sekunden, damit nichts unbemerkt bleibt").as_str());
         let keep = adw::ComboRow::new();
-        keep.set_title("Beendete Verbindungen anzeigen");
-        keep.set_subtitle("Abgeblendet im Live-Bild und in der Programmliste");
-        keep.set_model(Some(&gtk::StringList::new(&["Nicht anzeigen", "5 Minuten lang", "30 Minuten lang", "Bis die App geschlossen wird"])));
+        keep.set_title(tr("Beendete Verbindungen anzeigen").as_str());
+        keep.set_subtitle(tr("Abgeblendet im Live-Bild und in der Programmliste").as_str());
+        keep.set_model(Some(&string_list(&["Nicht anzeigen", "5 Minuten lang", "30 Minuten lang", "Bis die App geschlossen wird"])));
         keep.set_selected(2);
         let net_settings = group("Seite „Verbindungen“", None);
         net_settings.add(&live);
@@ -982,15 +989,15 @@ impl Ui {
             Some("Dienste, die auf eingehende Verbindungen warten."),
         );
         let show_local = adw::SwitchRow::new();
-        show_local.set_title("Auch nur lokal erreichbare Ports zeigen");
+        show_local.set_title(tr("Auch nur lokal erreichbare Ports zeigen").as_str());
         ports.add(&show_local);
 
         // Three views of the same data instead of one long page.
         let net_tabs = gtk::Stack::new();
         net_tabs.set_vhomogeneous(false);
-        net_tabs.add_titled(&graph_group, Some("graph"), "Live-Bild");
-        net_tabs.add_titled(&programs, Some("programs"), "Programme");
-        net_tabs.add_titled(&ports, Some("ports"), "Offene Ports");
+        net_tabs.add_titled(&graph_group, Some("graph"), tr("Live-Bild").as_str());
+        net_tabs.add_titled(&programs, Some("programs"), tr("Programme").as_str());
+        net_tabs.add_titled(&ports, Some("ports"), tr("Offene Ports").as_str());
         let net_switcher = gtk::StackSwitcher::new();
         net_switcher.set_stack(Some(&net_tabs));
         net_switcher.set_halign(gtk::Align::Center);
@@ -1005,17 +1012,17 @@ impl Ui {
         );
         let targets = scan::targets();
         let target = adw::ComboRow::new();
-        target.set_title("Ordner");
+        target.set_title(tr("Ordner").as_str());
         let labels: Vec<&str> = targets.iter().map(|t| t.label).collect();
-        target.set_model(Some(&gtk::StringList::new(&labels)));
+        target.set_model(Some(&string_list(&labels)));
         target.set_use_markup(false);
-        target.set_subtitle(targets.first().map(|t| t.path.as_str()).unwrap_or(""));
+        target.set_subtitle(tr(targets.first().map(|t| t.path.as_str()).unwrap_or("")).as_str());
         let status = info_row("Bereit", "Noch kein Scan in dieser Sitzung.");
         status.set_subtitle_lines(2);
         let scan_spinner = gtk::Spinner::new();
         scan_spinner.set_visible(false);
         status.add_prefix(&scan_spinner);
-        let button = gtk::Button::with_label("Scan starten");
+        let button = gtk::Button::with_label(tr("Scan starten").as_str());
         button.add_css_class("suggested-action");
         button.set_valign(gtk::Align::Center);
         status.add_suffix(&button);
@@ -1024,14 +1031,14 @@ impl Ui {
         avp.append(&scan_group);
         let available = util::which("clamscan").is_some();
         if !available {
-            status.set_title("ClamAV ist nicht installiert");
-            status.set_subtitle("Installieren mit: sudo apt install clamav");
+            status.set_title(tr("ClamAV ist nicht installiert").as_str());
+            status.set_subtitle(tr("Installieren mit: sudo apt install clamav").as_str());
             button.set_sensitive(false);
         }
 
         let window = adw::ApplicationWindow::builder()
             .application(app)
-            .title("Picket")
+            .title(tr("Picket").as_str())
             .default_width(1120)
             .default_height(780)
             .width_request(360)
@@ -1190,7 +1197,7 @@ impl Ui {
                     return;
                 };
                 ui2.stack.set_visible_child_name(name);
-                page.set_title(title);
+                page.set_title(tr(title).as_str());
                 split.set_show_content(true);
                 if *name == "network" {
                     ui2.load_net();
@@ -1287,7 +1294,9 @@ impl Ui {
                         .application_name("Picket")
                         .application_icon(APP_ID)
                         .version(env!("CARGO_PKG_VERSION"))
-                        .comments("Prüft Firewall, Virenscanner, Updates, Netzwerk und System dieses Laptops. Die Prüfungen lesen nur; geändert wird erst nach deiner Bestätigung.")
+                        .copyright("© 2026 blanpa")
+                        .license_type(gtk::License::Gpl30)
+                        .comments(tr("Prüft Firewall, Virenscanner, Updates, Netzwerk und System dieses Laptops. Die Prüfungen lesen nur; geändert wird erst nach deiner Bestätigung.").as_str())
                         .build()
                         .present(Some(&ui.window));
                 }),
@@ -1465,7 +1474,7 @@ impl Ui {
             let ui2 = ui.clone();
             ui.scan.target.connect_selected_notify(move |row| {
                 if let Some(t) = ui2.scan.targets.get(row.selected() as usize) {
-                    row.set_subtitle(&t.path);
+                    row.set_subtitle(tr(&t.path).as_str());
                 }
             });
         }
@@ -1618,7 +1627,7 @@ impl Ui {
     }
 
     fn toast(&self, text: &str) {
-        self.toasts.add_toast(adw::Toast::new(text));
+        self.toasts.add_toast(adw::Toast::new(tr(text).as_str()));
     }
 
     // ------------------------------------------------------------ report
@@ -1643,7 +1652,7 @@ impl Ui {
     }
 
     fn show_report(self: &Rc<Self>, r: &Report) {
-        self.stamp.set_label(&format!("Stand {}", clock(r.generated)));
+        self.stamp.set_label(tr(&format!("Stand {}", clock(r.generated))).as_str());
         self.banner.set_revealed(!r.privileged.available);
         self.render_firewall();
         *self.report.borrow_mut() = Some(r.clone());
@@ -1679,11 +1688,11 @@ impl Ui {
                 Status::Info => r.counts.info,
                 Status::Ok => r.counts.ok,
             };
-            label.set_label(&n.to_string());
+            label.set_label(tr(&n.to_string()).as_str());
         }
         let host = [&r.host.model, &r.host.os, &r.host.kernel, &r.host.bios];
         for (row, value) in self.device.iter().zip(host) {
-            row.set_subtitle(value);
+            row.set_subtitle(tr(value).as_str());
         }
         for (cat, badge) in &self.badges {
             let of = |s: Status| r.findings.iter().filter(|f| f.category == *cat && f.status == s && !f.accepted).count();
@@ -1693,10 +1702,10 @@ impl Ui {
             badge.set_visible(crit + warn > 0);
             if crit > 0 {
                 badge.add_css_class("error");
-                badge.set_label(&crit.to_string());
+                badge.set_label(tr(&crit.to_string()).as_str());
             } else if warn > 0 {
                 badge.add_css_class("warning");
-                badge.set_label(&warn.to_string());
+                badge.set_label(tr(&warn.to_string()).as_str());
             }
         }
 
@@ -1774,16 +1783,16 @@ impl Ui {
         };
         let command = format!("sudo {} install-helper", util::self_exe());
         let dialog = adw::AlertDialog::new(
-            Some("Einmalige Einrichtung"),
-            Some(&format!(
+            Some(tr("Einmalige Einrichtung").as_str()),
+            Some(tr(&format!(
                 "{problem}\n\nFür Firewall, Mitschnitt und Systemdaten braucht die App einen Helfer mit Administratorrechten. \
                  Er wird nach {} kopiert und gehört dann root – so kann kein Programm unter deinem Konto ihn unbemerkt austauschen. \
                  Dazu kommt eine Regel, mit der die Passwortabfrage einige Minuten gültig bleibt.\n\nAusgeführt wird:\n{command}",
                 helper::PATH
-            )),
+            )).as_str()),
         );
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("setup", "Einrichten");
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("setup", tr("Einrichten").as_str());
         dialog.set_response_appearance("setup", adw::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("setup"));
         dialog.set_close_response("cancel");
@@ -1825,20 +1834,20 @@ impl Ui {
         fv.toggle.remove_css_class("suggested-action");
         fv.toggle.remove_css_class("destructive-action");
         if !st.installed {
-            fv.status.set_title("ufw ist nicht installiert");
-            fv.status.set_subtitle("Installieren mit: sudo apt install ufw");
+            fv.status.set_title(tr("ufw ist nicht installiert").as_str());
+            fv.status.set_subtitle(tr("Installieren mit: sudo apt install ufw").as_str());
         } else if st.active {
-            fv.status.set_title("Firewall ist eingeschaltet");
-            fv.status.set_subtitle(&format!(
+            fv.status.set_title(tr("Firewall ist eingeschaltet").as_str());
+            fv.status.set_subtitle(tr(&format!(
                 "Eingehende Verbindungen werden nach den Regeln unten gefiltert, ausgehende sind {}.",
                 if st.outgoing == "allow" { "erlaubt" } else { "eingeschränkt" }
-            ));
-            fv.toggle.set_label("Ausschalten");
+            )).as_str());
+            fv.toggle.set_label(tr("Ausschalten").as_str());
             fv.toggle.add_css_class("destructive-action");
         } else {
-            fv.status.set_title("Firewall ist ausgeschaltet");
-            fv.status.set_subtitle("Alle offenen Ports sind aus dem Netz erreichbar. Regeln wirken erst nach dem Einschalten.");
-            fv.toggle.set_label("Einschalten");
+            fv.status.set_title(tr("Firewall ist ausgeschaltet").as_str());
+            fv.status.set_subtitle(tr("Alle offenen Ports sind aus dem Netz erreichbar. Regeln wirken erst nach dem Einschalten.").as_str());
+            fv.toggle.set_label(tr("Einschalten").as_str());
             fv.toggle.add_css_class("suggested-action");
         }
         for w in [fv.toggle.upcast_ref::<gtk::Widget>(), fv.policy.upcast_ref(), fv.add.upcast_ref()] {
@@ -1861,7 +1870,7 @@ impl Ui {
                     "Die vorhandenen Regeln sind nur mit Administratorrechten lesbar",
                     "Neue Regeln kannst du trotzdem anlegen.",
                 );
-                let btn = gtk::Button::with_label("Regeln anzeigen");
+                let btn = gtk::Button::with_label(tr("Regeln anzeigen").as_str());
                 btn.set_valign(gtk::Align::Center);
                 let weak = Rc::downgrade(self);
                 btn.connect_clicked(move |_| {
@@ -1894,7 +1903,7 @@ impl Ui {
                     let btn = gtk::Button::from_icon_name("user-trash-symbolic");
                     btn.add_css_class("flat");
                     btn.set_valign(gtk::Align::Center);
-                    btn.set_tooltip_text(Some("Regel löschen"));
+                    btn.set_tooltip_text(Some(tr("Regel löschen").as_str()));
                     let (weak, raw, text) = (Rc::downgrade(self), rule.raw.clone(), rule.describe());
                     btn.connect_clicked(move |_| {
                         if let Some(ui) = weak.upgrade() {
@@ -1921,7 +1930,7 @@ impl Ui {
             let btn = gtk::Button::from_icon_name("user-trash-symbolic");
             btn.add_css_class("flat");
             btn.set_valign(gtk::Align::Center);
-            btn.set_tooltip_text(Some("Wieder freigeben"));
+            btn.set_tooltip_text(Some(tr("Wieder freigeben").as_str()));
             let (weak, d) = (Rc::downgrade(self), domain.clone());
             btn.connect_clicked(move |_| {
                 if let Some(ui) = weak.upgrade() {
@@ -1954,9 +1963,9 @@ impl Ui {
                 return;
             }
         };
-        let dialog = adw::AlertDialog::new(Some(heading), Some(&format!("{body}\n\nAusgeführt wird:\n{command}")));
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("apply", "Anwenden");
+        let dialog = adw::AlertDialog::new(Some(tr(heading).as_str()), Some(tr(&format!("{body}\n\nAusgeführt wird:\n{command}")).as_str()));
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("apply", tr("Anwenden").as_str());
         dialog.set_response_appearance(
             "apply",
             if destructive { adw::ResponseAppearance::Destructive } else { adw::ResponseAppearance::Suggested },
@@ -2000,8 +2009,8 @@ impl Ui {
                 Some(o) if matches!(o.status.code(), Some(126) | Some(127)) => ui.toast("Abgebrochen – nichts geändert"),
                 Some(o) => {
                     let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                    let dialog = adw::AlertDialog::new(Some("Die Änderung ist fehlgeschlagen"), Some(&msg));
-                    dialog.add_response("ok", "Schließen");
+                    let dialog = adw::AlertDialog::new(Some(tr("Die Änderung ist fehlgeschlagen").as_str()), Some(tr(&msg).as_str()));
+                    dialog.add_response("ok", tr("Schließen").as_str());
                     dialog.present(Some(&ui.window));
                 }
                 None => ui.toast("pkexec ist nicht verfügbar"),
@@ -2015,13 +2024,13 @@ impl Ui {
     fn rule_dialog(self: &Rc<Self>, port: &str, proto: u32) {
         let combo = |title: &str, items: &[&str]| {
             let row = adw::ComboRow::new();
-            row.set_title(title);
-            row.set_model(Some(&gtk::StringList::new(items)));
+            row.set_title(tr(title).as_str());
+            row.set_model(Some(&string_list(items)));
             row
         };
         let entry = |title: &str| {
             let row = adw::EntryRow::new();
-            row.set_title(title);
+            row.set_title(tr(title).as_str());
             row
         };
         let action = combo("Aktion", &["Erlauben", "Blockieren", "Ablehnen", "Begrenzen"]);
@@ -2040,7 +2049,7 @@ impl Ui {
             if local.is_empty() { None } else { Some("") },
         );
         if !local.is_empty() {
-            form.set_description(Some(&format!("Dein lokales Netz: {}", local.join(", "))));
+            form.set_description(Some(tr(&format!("Dein lokales Netz: {}", local.join(", "))).as_str()));
         }
         for row in [action.upcast_ref::<gtk::Widget>(), direction.upcast_ref(), port_row.upcast_ref(), proto_row.upcast_ref(), addr.upcast_ref(), comment.upcast_ref()] {
             form.add(row);
@@ -2048,8 +2057,8 @@ impl Ui {
 
         let preview = gtk::Label::builder().wrap(true).xalign(0.0).build();
         preview.add_css_class("monospace");
-        let cancel = gtk::Button::with_label("Abbrechen");
-        let apply = gtk::Button::with_label("Regel anlegen");
+        let cancel = gtk::Button::with_label(tr("Abbrechen").as_str());
+        let apply = gtk::Button::with_label(tr("Regel anlegen").as_str());
         apply.add_css_class("suggested-action");
         let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         buttons.set_halign(gtk::Align::End);
@@ -2068,7 +2077,7 @@ impl Ui {
         view.add_top_bar(&adw::HeaderBar::new());
         view.set_content(Some(&content));
         let dialog = adw::Dialog::new();
-        dialog.set_title("Firewall-Regel anlegen");
+        dialog.set_title(tr("Firewall-Regel anlegen").as_str());
         dialog.set_content_width(560);
         dialog.set_child(Some(&view));
 
@@ -2092,12 +2101,12 @@ impl Ui {
             Rc::new(move || match fwctl::command_line(&read()) {
                 Ok(cmd) => {
                     preview.remove_css_class("error");
-                    preview.set_label(&cmd);
+                    preview.set_label(tr(&cmd).as_str());
                     apply.set_sensitive(true);
                 }
                 Err(e) => {
                     preview.add_css_class("error");
-                    preview.set_label(&e);
+                    preview.set_label(tr(&e).as_str());
                     apply.set_sensitive(false);
                 }
             })
@@ -2191,7 +2200,7 @@ impl Ui {
                 };
                 row.add_prefix(&gtk::Image::from_icon_name(icon));
                 if !d.other_ips.is_empty() {
-                    row.set_tooltip_text(Some(&format!("Weitere Adressen: {}", d.other_ips.join(", "))));
+                    row.set_tooltip_text(Some(tr(&format!("Weitere Adressen: {}", d.other_ips.join(", "))).as_str()));
                 }
                 // Suffixes are packed from the right; the most important tag goes last.
                 if !d.active {
@@ -2254,11 +2263,11 @@ impl Ui {
         let last = nv.last.borrow();
         let Some(n) = last.as_ref() else { return };
 
-        nv.stamp.set_label(&format!("Stand {}", clock(n.generated)));
+        nv.stamp.set_label(tr(&format!("Stand {}", clock(n.generated))).as_str());
         for (zone, number, sub, _) in &nv.cards {
             let t = n.totals.get(zone).cloned().unwrap_or_default();
-            number.set_label(&t.connections.to_string());
-            sub.set_label(&format!("{} Gegenstellen · {} Programme", t.hosts, t.programs));
+            number.set_label(tr(&t.connections.to_string()).as_str());
+            sub.set_label(tr(&format!("{} Gegenstellen · {} Programme", t.hosts, t.programs)).as_str());
         }
 
         let zone_filter = self.selected_zone();
@@ -2343,11 +2352,11 @@ impl Ui {
             let closed = closed_by_program.get(name).map(Vec::as_slice).unwrap_or(&[]);
             let row = adw::ExpanderRow::new();
             row.set_use_markup(false);
-            row.set_title(if name.is_empty() { "System / anderer Benutzer" } else { name });
+            row.set_title(tr(if name.is_empty() { "System / anderer Benutzer" } else { name }).as_str());
             match program {
-                Some(p) if p.pids.len() > 1 => row.set_subtitle(&format!("{} Prozesse", p.pids.len())),
+                Some(p) if p.pids.len() > 1 => row.set_subtitle(tr(&format!("{} Prozesse", p.pids.len())).as_str()),
                 None => {
-                    row.set_subtitle("Keine offene Verbindung mehr");
+                    row.set_subtitle(tr("Keine offene Verbindung mehr").as_str());
                     row.add_css_class("dim-label");
                 }
                 _ => {}
@@ -2451,7 +2460,7 @@ impl Ui {
                 let btn = gtk::Button::from_icon_name("security-high-symbolic");
                 btn.add_css_class("flat");
                 btn.set_valign(gtk::Align::Center);
-                btn.set_tooltip_text(Some("Firewall-Regel für diesen Port anlegen"));
+                btn.set_tooltip_text(Some(tr("Firewall-Regel für diesen Port anlegen").as_str()));
                 let (weak, port, proto) = (Rc::downgrade(self), l.port.to_string(), if l.proto == "udp" { 2 } else { 1 });
                 btn.connect_clicked(move |_| {
                     if let Some(ui) = weak.upgrade() {
@@ -2518,7 +2527,7 @@ impl Ui {
     fn endpoint_actions(self: &Rc<Self>, remote: &str, port: u16, inbound: bool, popover: &gtk::Popover) -> gtk::Box {
         let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
         for (label, action) in [("Mitschneiden", 0u8), ("Verbindung trennen", 1), ("Gegenstelle blockieren …", 2)] {
-            let item = gtk::Button::with_label(label);
+            let item = gtk::Button::with_label(tr(label).as_str());
             item.add_css_class("flat");
             if let Some(l) = item.child().and_downcast::<gtk::Label>() {
                 l.set_xalign(0.0);
@@ -2545,7 +2554,7 @@ impl Ui {
         button.set_icon_name("view-more-symbolic");
         button.add_css_class("flat");
         button.set_valign(gtk::Align::Center);
-        button.set_tooltip_text(Some("Mitschneiden, trennen oder blockieren"));
+        button.set_tooltip_text(Some(tr("Mitschneiden, trennen oder blockieren").as_str()));
         let (weak, remote) = (Rc::downgrade(self), remote.to_string());
         // The popover is built when first opened; the list is rebuilt often.
         button.set_create_popup_func(move |button| {
@@ -2619,16 +2628,16 @@ impl Ui {
             Some(d) => format!("{d} Tage alt"),
             None => "noch nicht geladen".to_string(),
         };
-        ex.geo.set_subtitle(&if geo::available() {
+        ex.geo.set_subtitle(tr(&if geo::available() {
             format!("Vorhanden ({}) · Zuordnung läuft offline · Quelle: db-ip.com", age(geo::age_days()))
         } else {
             "Fehlt · lädt einmalig ca. 18 MB von db-ip.com, danach offline".to_string()
-        });
-        ex.blocklist.set_subtitle(&if blocklist::available() {
+        }).as_str());
+        ex.blocklist.set_subtitle(tr(&if blocklist::available() {
             format!("Vorhanden ({}) · markiert bekannte Domains im Mitschnitt · Quelle: StevenBlack/hosts", age(blocklist::age_days()))
         } else {
             "Fehlt · lädt einmalig ca. 2 MB von GitHub, danach offline".to_string()
-        });
+        }).as_str());
     }
 
     fn export_report(self: &Rc<Self>) {
@@ -2636,7 +2645,7 @@ impl Ui {
             self.toast("Der Bericht ist noch nicht fertig.");
             return;
         };
-        let dialog = gtk::FileDialog::builder().title("Bericht speichern").initial_name("sicherheitsbericht.html").build();
+        let dialog = gtk::FileDialog::builder().title(tr("Bericht speichern").as_str()).initial_name("sicherheitsbericht.html").build();
         let ui = self.clone();
         dialog.save(Some(&self.window), gio::Cancellable::NONE, move |result| {
             let Some(path) = result.ok().and_then(|f| f.path()) else { return };
@@ -2672,9 +2681,9 @@ impl Ui {
         if fix.root {
             body.push_str("\n\nDas System fragt dafür nach deinem Passwort.");
         }
-        let dialog = adw::AlertDialog::new(Some("Befund beheben?"), Some(&body));
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("apply", "Beheben");
+        let dialog = adw::AlertDialog::new(Some(tr("Befund beheben?").as_str()), Some(tr(&body).as_str()));
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("apply", tr("Beheben").as_str());
         dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("cancel"));
         dialog.set_close_response("cancel");
@@ -2708,8 +2717,8 @@ impl Ui {
                 match result {
                     Ok(msg) => ui.toast(&msg),
                     Err(e) => {
-                        let dialog = adw::AlertDialog::new(Some("Die Korrektur ist fehlgeschlagen"), Some(&e));
-                        dialog.add_response("ok", "Schließen");
+                        let dialog = adw::AlertDialog::new(Some(tr("Die Korrektur ist fehlgeschlagen").as_str()), Some(tr(&e).as_str()));
+                        dialog.add_response("ok", tr("Schließen").as_str());
                         dialog.present(Some(&ui.window));
                     }
                 }
@@ -2745,8 +2754,8 @@ impl Ui {
                     for c in containers {
                         let row = adw::ExpanderRow::new();
                         row.set_use_markup(false);
-                        row.set_title(&c.name);
-                        row.set_subtitle(&c.image);
+                        row.set_title(tr(&c.name).as_str());
+                        row.set_subtitle(tr(&c.image).as_str());
                         // Suffixes are packed from the right.
                         if c.runs_as_root() {
                             row.add_suffix(&tag("root", "fw-z-loopback"));
@@ -2776,17 +2785,17 @@ impl Ui {
                                 let btn = gtk::Button::from_icon_name("edit-copy-symbolic");
                                 btn.add_css_class("flat");
                                 btn.set_valign(gtk::Align::Center);
-                                btn.set_tooltip_text(Some("Zeile für die Compose-Datei kopieren"));
+                                btn.set_tooltip_text(Some(tr("Zeile für die Compose-Datei kopieren").as_str()));
                                 let (line, toasts) = (p.local_binding(), ui.toasts.clone());
                                 btn.connect_clicked(move |b| {
                                     b.clipboard().set_text(&line);
-                                    toasts.add_toast(adw::Toast::new("Zeile kopiert – in der Compose-Datei unter „ports:“ einsetzen"));
+                                    toasts.add_toast(adw::Toast::new(tr("Zeile kopiert – in der Compose-Datei unter „ports:“ einsetzen").as_str()));
                                 });
                                 child.add_suffix(&btn);
                                 if c.compose_file.ends_with(".yml") || c.compose_file.ends_with(".yaml") {
-                                    let fix = gtk::Button::with_label("Beschränken …");
+                                    let fix = gtk::Button::with_label(tr("Beschränken …").as_str());
                                     fix.set_valign(gtk::Align::Center);
-                                    fix.set_tooltip_text(Some("Ändert die Compose-Datei so, dass der Port nur noch auf diesem Laptop erreichbar ist"));
+                                    fix.set_tooltip_text(Some(tr("Ändert die Compose-Datei so, dass der Port nur noch auf diesem Laptop erreichbar ist").as_str()));
                                     let (weak, file, port) = (Rc::downgrade(&ui), c.compose_file.clone(), p.container_port.clone());
                                     fix.connect_clicked(move |_| {
                                         if let Some(ui) = weak.upgrade() {
@@ -2831,16 +2840,16 @@ impl Ui {
         };
         let diff: Vec<String> = changes.iter().map(|(old, new)| format!("{old}\nwird zu\n{new}")).collect();
         let dialog = adw::AlertDialog::new(
-            Some("Port auf diesen Laptop beschränken?"),
-            Some(&format!(
+            Some(tr("Port auf diesen Laptop beschränken?").as_str()),
+            Some(tr(&format!(
                 "In {compose_file}:\n\n{}\n\nDanach läuft „docker compose up -d“; der Container startet dabei kurz neu. \
                  Der Dienst ist anschließend nur noch von diesem Laptop aus erreichbar. \
                  Die bisherige Datei bleibt als {compose_file}.picket-sicherung erhalten.",
                 diff.join("\n\n")
-            )),
+            )).as_str()),
         );
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("apply", "Ändern und neu starten");
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("apply", tr("Ändern und neu starten").as_str());
         dialog.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("cancel"));
         dialog.set_close_response("cancel");
@@ -2856,8 +2865,8 @@ impl Ui {
                 match result {
                     Ok(msg) => ui.toast(&msg),
                     Err(e) => {
-                        let dialog = adw::AlertDialog::new(Some("Das hat nicht geklappt"), Some(&e));
-                        dialog.add_response("ok", "Schließen");
+                        let dialog = adw::AlertDialog::new(Some(tr("Das hat nicht geklappt").as_str()), Some(tr(&e).as_str()));
+                        dialog.add_response("ok", tr("Schließen").as_str());
                         dialog.present(Some(&ui.window));
                     }
                 }
@@ -2872,10 +2881,10 @@ impl Ui {
         let dv = &self.docker;
         if !docker::trivy_available() {
             let dialog = adw::AlertDialog::new(
-                Some("Trivy ist nicht installiert"),
-                Some("Die Prüfung nutzt das freie Werkzeug Trivy. Installieren mit Homebrew:\n\nbrew install trivy\n\nOder über die Paketquelle des Herstellers, siehe trivy.dev (Installation)."),
+                Some(tr("Trivy ist nicht installiert").as_str()),
+                Some(tr("Die Prüfung nutzt das freie Werkzeug Trivy. Installieren mit Homebrew:\n\nbrew install trivy\n\nOder über die Paketquelle des Herstellers, siehe trivy.dev (Installation).").as_str()),
             );
-            dialog.add_response("ok", "Schließen");
+            dialog.add_response("ok", tr("Schließen").as_str());
             dialog.present(Some(&self.window));
             return;
         }
@@ -2905,8 +2914,8 @@ impl Ui {
                         row.set_use_markup(false);
                         match result {
                             Ok(scan) => {
-                                row.set_title(&scan.image);
-                                row.set_subtitle(&format!("{} kritisch · {} hoch", scan.critical, scan.high));
+                                row.set_title(tr(&scan.image).as_str());
+                                row.set_subtitle(tr(&format!("{} kritisch · {} hoch", scan.critical, scan.high)).as_str());
                                 let (label, css) = match (scan.critical, scan.high) {
                                     (0, 0) => ("Keine", "success"),
                                     (0, _) => ("Hoch", "warning"),
@@ -2921,8 +2930,8 @@ impl Ui {
                                 }
                             }
                             Err((image, e)) => {
-                                row.set_title(&image);
-                                row.set_subtitle(&e);
+                                row.set_title(tr(&image).as_str());
+                                row.set_subtitle(tr(&e).as_str());
                                 row.set_enable_expansion(false);
                             }
                         }
@@ -2962,11 +2971,11 @@ impl Ui {
             info.push(format!("{} Pakete", t.packets));
             info.push(t.protos.iter().copied().collect::<Vec<_>>().join(", "));
             let row = info_row(name.as_deref().unwrap_or(ip), &info.join(" · "));
-            row.add_suffix(&gtk::Label::new(Some(&util::format_bytes(t.bytes))));
-            let btn = gtk::Button::with_label("Nur diese");
+            row.add_suffix(&gtk::Label::new(Some(tr(&util::format_bytes(t.bytes)).as_str())));
+            let btn = gtk::Button::with_label(tr("Nur diese").as_str());
             btn.add_css_class("flat");
             btn.set_valign(gtk::Align::Center);
-            btn.set_tooltip_text(Some("Die Paketliste auf diese Gegenstelle einschränken"));
+            btn.set_tooltip_text(Some(tr("Die Paketliste auf diese Gegenstelle einschränken").as_str()));
             let (search, ip) = (cv.search.clone(), ip.clone());
             btn.connect_clicked(move |_| search.set_text(&ip));
             row.add_suffix(&btn);
@@ -3014,7 +3023,7 @@ impl Ui {
 
         let days = history::days();
         hv.updating.set(true);
-        hv.day.set_model(Some(&gtk::StringList::new(&days.iter().map(String::as_str).collect::<Vec<_>>())));
+        hv.day.set_model(Some(&string_list(&days.iter().map(String::as_str).collect::<Vec<_>>())));
         hv.updating.set(false);
         *hv.days.borrow_mut() = days;
         self.render_history_day();
@@ -3043,7 +3052,7 @@ impl Ui {
             info.push(format!("{}–{}", clock_fmt(e.first, "%H:%M"), clock_fmt(e.last, "%H:%M")));
             let row = info_row(&format!("{program} → {host}"), &info.join(" · "));
             if e.sent + e.received > 0 {
-                row.add_suffix(&gtk::Label::new(Some(&format!("↑ {}  ↓ {}", util::format_bytes(e.sent), util::format_bytes(e.received)))));
+                row.add_suffix(&gtk::Label::new(Some(tr(&format!("↑ {}  ↓ {}", util::format_bytes(e.sent), util::format_bytes(e.received))).as_str())));
             }
             let css = ZONES.iter().find(|z| z.0.label() == e.zone).map(|z| z.3).unwrap_or("fw-z-loopback");
             row.add_suffix(&tag(&e.zone, css));
@@ -3079,7 +3088,7 @@ impl Ui {
         dv.button.set_sensitive(false);
         dv.spinner.set_visible(true);
         dv.spinner.start();
-        dv.status.set_title("Tiefenprüfung läuft");
+        dv.status.set_title(tr("Tiefenprüfung läuft").as_str());
         enum Msg {
             Step(String),
             Done(Vec<Finding>),
@@ -3097,11 +3106,11 @@ impl Ui {
             let dv = &ui.deep;
             loop {
                 match rx.try_recv() {
-                    Ok(Msg::Step(text)) => dv.status.set_subtitle(&text),
+                    Ok(Msg::Step(text)) => dv.status.set_subtitle(tr(&text).as_str()),
                     Ok(Msg::Done(findings)) => {
                         let urgent = findings.iter().filter(|f| matches!(f.status, Status::Crit | Status::Warn)).count();
-                        dv.status.set_title("Tiefenprüfung abgeschlossen");
-                        dv.status.set_subtitle(&format!("{} · {urgent} mit Handlungsbedarf", clock_fmt(util::now(), "%H:%M")));
+                        dv.status.set_title(tr("Tiefenprüfung abgeschlossen").as_str());
+                        dv.status.set_subtitle(tr(&format!("{} · {urgent} mit Handlungsbedarf", clock_fmt(util::now(), "%H:%M"))).as_str());
                         ui.show_deep_results(&findings, true);
                         dv.running.set(false);
                         dv.button.set_sensitive(true);
@@ -3114,7 +3123,7 @@ impl Ui {
                         dv.running.set(false);
                         dv.button.set_sensitive(true);
                         dv.spinner.stop();
-                        dv.status.set_title("Tiefenprüfung abgebrochen");
+                        dv.status.set_title(tr("Tiefenprüfung abgebrochen").as_str());
                         return glib::ControlFlow::Break;
                     }
                 }
@@ -3126,20 +3135,20 @@ impl Ui {
     fn confirm_cve(self: &Rc<Self>) {
         let packages = osv::inventory();
         if packages.is_empty() {
-            self.deep.cve.set_subtitle("Es sind keine Programme über cargo, pip oder npm installiert – es gibt nichts abzugleichen.");
+            self.deep.cve.set_subtitle(tr("Es sind keine Programme über cargo, pip oder npm installiert – es gibt nichts abzugleichen.").as_str());
             return;
         }
         let list: Vec<String> = packages.iter().map(|p| format!("{} {} ({})", p.name, p.version, p.ecosystem)).collect();
         let dialog = adw::AlertDialog::new(
-            Some("Programmliste an osv.dev senden?"),
-            Some(&format!(
+            Some(tr("Programmliste an osv.dev senden?").as_str()),
+            Some(tr(&format!(
                 "Für den Abgleich werden Name und Version dieser {} Programme an die Schwachstellen-Datenbank osv.dev (Google) übertragen:\n\n{}",
                 list.len(),
                 list.join("\n")
-            )),
+            )).as_str()),
         );
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("send", "Senden und abgleichen");
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("send", tr("Senden und abgleichen").as_str());
         dialog.set_default_response(Some("cancel"));
         dialog.set_close_response("cancel");
         let ui = self.clone();
@@ -3162,7 +3171,7 @@ impl Ui {
                         .details(v.iter().map(|x| format!("{} {} – {} {}", x.package, x.version, x.id, x.summary)))
                         .fix("Betroffene Programme aktualisieren.", &["cargo install <programm>", "pip install --user -U <paket>", "npm update -g <paket>"]),
                 };
-                ui.deep.cve.set_subtitle(&finding.summary);
+                ui.deep.cve.set_subtitle(tr(&finding.summary).as_str());
                 ui.show_deep_results(&[finding], false);
             });
         });
@@ -3176,13 +3185,13 @@ impl Ui {
         button.set_icon_name("view-more-symbolic");
         button.add_css_class("flat");
         button.set_valign(gtk::Align::Center);
-        button.set_tooltip_text(Some("Umbenennen oder Dienste prüfen"));
+        button.set_tooltip_text(Some(tr("Umbenennen oder Dienste prüfen").as_str()));
         let (weak, mac, ip, title) = (Rc::downgrade(self), d.mac.clone(), d.ip.clone(), d.title());
         button.set_create_popup_func(move |button| {
             let popover = gtk::Popover::new();
             let list = gtk::Box::new(gtk::Orientation::Vertical, 2);
             for (label, action) in [("Umbenennen …", 0u8), ("Dienste prüfen", 1u8)] {
-                let item = gtk::Button::with_label(label);
+                let item = gtk::Button::with_label(tr(label).as_str());
                 item.add_css_class("flat");
                 let (weak, mac, ip, title, popover) = (weak.clone(), mac.clone(), ip.clone(), title.clone(), popover.clone());
                 item.connect_clicked(move |_| {
@@ -3205,10 +3214,10 @@ impl Ui {
     fn rename_device(self: &Rc<Self>, mac: &str, current: &str) {
         let entry = gtk::Entry::new();
         entry.set_text(current);
-        let dialog = adw::AlertDialog::new(Some("Gerät benennen"), Some("Der Name gilt nur in dieser App. Leer lassen, um ihn zu entfernen."));
+        let dialog = adw::AlertDialog::new(Some(tr("Gerät benennen").as_str()), Some(tr("Der Name gilt nur in dieser App. Leer lassen, um ihn zu entfernen.").as_str()));
         dialog.set_extra_child(Some(&entry));
-        dialog.add_response("cancel", "Abbrechen");
-        dialog.add_response("save", "Speichern");
+        dialog.add_response("cancel", tr("Abbrechen").as_str());
+        dialog.add_response("save", tr("Speichern").as_str());
         dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
         dialog.set_default_response(Some("save"));
         dialog.set_close_response("cancel");
@@ -3237,8 +3246,8 @@ impl Ui {
                 }
                 lines.join("\n")
             };
-            let dialog = adw::AlertDialog::new(Some(&format!("Dienste von {title} ({ip})")), Some(&body));
-            dialog.add_response("ok", "Schließen");
+            let dialog = adw::AlertDialog::new(Some(tr(&format!("Dienste von {title} ({ip})")).as_str()), Some(tr(&body).as_str()));
+            dialog.add_response("ok", tr("Schließen").as_str());
             dialog.present(Some(&ui.window));
         });
     }
@@ -3257,7 +3266,7 @@ impl Ui {
         if cv.running.get() {
             // Closing the pipe makes the root helper stop tcpdump.
             cv.stdin.borrow_mut().take();
-            cv.status.set_subtitle("Wird beendet …");
+            cv.status.set_subtitle(tr("Wird beendet …").as_str());
             return;
         }
         let request = capture::Request {
@@ -3324,11 +3333,11 @@ impl Ui {
         cv.bytes.set(0);
         cv.running.set(true);
         cv.save.set_sensitive(false);
-        cv.button.set_label("Stoppen");
+        cv.button.set_label(tr("Stoppen").as_str());
         cv.button.remove_css_class("suggested-action");
         cv.button.add_css_class("destructive-action");
-        cv.status.set_title("Mitschnitt startet …");
-        cv.status.set_subtitle("Warte auf die Passwortabfrage des Systems.");
+        cv.status.set_title(tr("Mitschnitt startet …").as_str());
+        cv.status.set_subtitle(tr("Warte auf die Passwortabfrage des Systems.").as_str());
 
         // Reader thread: store the raw capture, decode it, hand packets to the window.
         let (tx, rx) = std::sync::mpsc::channel::<CapMsg>();
@@ -3422,34 +3431,34 @@ impl Ui {
             let size = format!("{} Pakete · {} kB", cv.packets.get(), cv.bytes.get() / 1000);
             let Some((code, stderr, invalid)) = done else {
                 if cv.bytes.get() > 0 {
-                    cv.status.set_title("Mitschnitt läuft");
-                    cv.status.set_subtitle(&size);
+                    cv.status.set_title(tr("Mitschnitt läuft").as_str());
+                    cv.status.set_subtitle(tr(&size).as_str());
                 }
                 return glib::ControlFlow::Continue;
             };
             cv.running.set(false);
             cv.stdin.borrow_mut().take();
-            cv.button.set_label("Mitschnitt starten");
+            cv.button.set_label(tr("Mitschnitt starten").as_str());
             cv.button.remove_css_class("destructive-action");
             cv.button.add_css_class("suggested-action");
             cv.save.set_sensitive(cv.bytes.get() > 24);
             if cv.bytes.get() > 0 && !invalid {
-                cv.status.set_title("Mitschnitt beendet");
-                cv.status.set_subtitle(&size);
+                cv.status.set_title(tr("Mitschnitt beendet").as_str());
+                cv.status.set_subtitle(tr(&size).as_str());
             } else if matches!(code, Some(126) | Some(127)) {
-                cv.status.set_title("Abgebrochen");
-                cv.status.set_subtitle("Ohne Passwort kann nichts aufgezeichnet werden.");
+                cv.status.set_title(tr("Abgebrochen").as_str());
+                cv.status.set_subtitle(tr("Ohne Passwort kann nichts aufgezeichnet werden.").as_str());
             } else {
-                cv.status.set_title("Mitschnitt fehlgeschlagen");
+                cv.status.set_title(tr("Mitschnitt fehlgeschlagen").as_str());
                 let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("Es kamen keine Daten an.");
-                cv.status.set_subtitle(last);
+                cv.status.set_subtitle(tr(last).as_str());
             }
             glib::ControlFlow::Break
         });
     }
 
     fn save_capture(self: &Rc<Self>) {
-        let dialog = gtk::FileDialog::builder().title("Mitschnitt speichern").initial_name("mitschnitt.pcap").build();
+        let dialog = gtk::FileDialog::builder().title(tr("Mitschnitt speichern").as_str()).initial_name("mitschnitt.pcap").build();
         let ui = self.clone();
         dialog.save(Some(&self.window), gio::Cancellable::NONE, move |result| {
             let Some(path) = result.ok().and_then(|f| f.path()) else { return };
@@ -3495,7 +3504,7 @@ impl Ui {
         sv.spinner.set_visible(s.running);
         sv.spinner.set_spinning(s.running);
         sv.target.set_sensitive(!s.running);
-        sv.button.set_label(if s.running { "Abbrechen" } else { "Scan starten" });
+        sv.button.set_label(tr(if s.running { "Abbrechen" } else { "Scan starten" }).as_str());
         if s.running {
             sv.button.remove_css_class("suggested-action");
             let found = if s.infected.is_empty() {
@@ -3503,30 +3512,30 @@ impl Ui {
             } else {
                 format!(" · {} Fund(e)", s.infected.len())
             };
-            sv.status.set_title(&format!("Scan läuft – {} Dateien geprüft{found}", s.files));
-            sv.status.set_subtitle(if s.current.is_empty() { "Signaturen werden geladen …" } else { &s.current });
+            sv.status.set_title(tr(&format!("Scan läuft – {} Dateien geprüft{found}", s.files)).as_str());
+            sv.status.set_subtitle(tr(if s.current.is_empty() { "Signaturen werden geladen …" } else { &s.current }).as_str());
         } else {
             sv.button.add_css_class("suggested-action");
             if let Some(e) = &s.error {
-                sv.status.set_title("Scan fehlgeschlagen");
-                sv.status.set_subtitle(e);
+                sv.status.set_title(tr("Scan fehlgeschlagen").as_str());
+                sv.status.set_subtitle(tr(e).as_str());
             } else if let Some(finished) = s.finished {
                 let secs = finished.saturating_sub(s.started);
-                sv.status.set_title(&if s.cancelled {
+                sv.status.set_title(tr(&if s.cancelled {
                     "Scan abgebrochen".to_string()
                 } else if s.infected.is_empty() {
                     "Keine Funde".to_string()
                 } else {
                     format!("{} Fund(e)", s.infected.len())
-                });
+                }).as_str());
                 let skipped = if s.skipped > 0 { format!(" · {} nicht lesbar", s.skipped) } else { String::new() };
-                sv.status.set_subtitle(&format!(
+                sv.status.set_subtitle(tr(&format!(
                     "{} · {} Dateien geprüft{skipped} · {}:{:02} min",
                     s.path,
                     s.files,
                     secs / 60,
                     secs % 60
-                ));
+                )).as_str());
             }
         }
         if sv.found_rows.borrow().len() != s.infected.len() {

@@ -98,7 +98,7 @@ pub fn lookup(ip: IpAddr) -> Option<Geo> {
             if let Some(c) = rec.country {
                 geo.country_code = c.iso_code.unwrap_or_default();
                 let names = c.names.unwrap_or_default();
-                geo.country = names.get("de").or_else(|| names.get("en")).cloned().unwrap_or_else(|| geo.country_code.clone());
+                geo.country = names.get(if crate::i18n::german() { "de" } else { "en" }).or_else(|| names.get("en")).cloned().unwrap_or_else(|| geo.country_code.clone());
             }
         }
     }

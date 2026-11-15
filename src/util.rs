@@ -210,12 +210,21 @@ pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
 }
 
 /// Human-readable size, e.g. "3,4 MB".
+/// A number written with a decimal point, as the interface language writes it.
+pub fn decimal(number: String) -> String {
+    if crate::i18n::german() {
+        number.replace('.', ",")
+    } else {
+        number
+    }
+}
+
 pub fn format_bytes(n: u64) -> String {
     let n = n as f64;
     if n >= 1e9 {
-        format!("{:.1} GB", n / 1e9).replace('.', ",")
+        decimal(format!("{:.1} GB", n / 1e9))
     } else if n >= 1e6 {
-        format!("{:.1} MB", n / 1e6).replace('.', ",")
+        decimal(format!("{:.1} MB", n / 1e6))
     } else if n >= 1e3 {
         format!("{:.0} kB", n / 1e3)
     } else {

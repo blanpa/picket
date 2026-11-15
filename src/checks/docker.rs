@@ -69,7 +69,7 @@ pub fn check(_ctx: &Ctx) -> Vec<Finding> {
     out.push(if powerful.is_empty() {
         f.set(Status::Ok, "Kein Container ist privilegiert oder hat Zugriff auf den Docker-Socket.")
     } else {
-        f.set(Status::Warn, format!("{} können das Wirtssystem übernehmen.", util::plural(powerful.len(), "Container kann", "Container")))
+        f.set(Status::Warn, format!("{} das Wirtssystem übernehmen.", util::plural(powerful.len(), "Container kann", "Container können")))
             .details(powerful)
             .fix("Nur einsetzen, wenn es wirklich nötig ist (z. B. Verwaltungswerkzeuge), und solche Container nie aus dem Netz erreichbar machen.", &[])
     });

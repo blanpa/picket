@@ -6,6 +6,7 @@
 //! into one of a small set of validated ufw commands. Free-form arguments
 //! never reach ufw.
 
+use crate::i18n::tr;
 use crate::privileged::{self, Privileged};
 use crate::util;
 use serde::{Deserialize, Serialize};
@@ -321,29 +322,31 @@ pub struct Rule {
 
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 impl Rule {
-    /// Short German description, e.g. "Erlauben: eingehend, Port 22, TCP".
+    /// Short description in the interface language, e.g. "Erlauben: eingehend Port 22".
     pub fn describe(&self) -> String {
-        let action = match self.action.as_str() {
+        let action = tr(match self.action.as_str() {
             "allow" => "Erlauben",
             "deny" => "Blockieren",
             "reject" => "Ablehnen",
             "limit" => "Begrenzen",
             other => other,
-        };
+        });
         let body = strip_comment(&self.raw);
         let rest = body.strip_prefix(self.action.as_str()).unwrap_or(body).trim();
         let words: Vec<String> = rest
             .split_whitespace()
-            .map(|w| match w {
-                "in" => "eingehend".to_string(),
-                "out" => "ausgehend".to_string(),
-                "from" => "von".to_string(),
-                "to" => "nach".to_string(),
-                "any" => "überall".to_string(),
-                "port" => "Port".to_string(),
-                "proto" => "Protokoll".to_string(),
-                "on" => "an".to_string(),
-                other => other.to_string(),
+            .map(|w| {
+                tr(match w {
+                    "in" => "eingehend",
+                    "out" => "ausgehend",
+                    "from" => "von",
+                    "to" => "nach",
+                    "any" => "überall",
+                    "port" => "Port",
+                    "proto" => "Protokoll",
+                    "on" => "an",
+                    other => other,
+                })
             })
             .collect();
         format!("{action}: {}", words.join(" "))
@@ -545,7 +548,7 @@ pub fn apply(ops: &[Op], dry_run: bool) -> Result<(), String> {
     let commands: Vec<Vec<String>> = ops.iter().map(ufw_args).collect::<Result<_, _>>()?;
     if dry_run {
         for (op, _) in ops.iter().zip(&commands) {
-            println!("{}", command_line(op)?);
+            crate::outln!("{}", command_line(op)?);
         }
         return Ok(());
     }

@@ -30,8 +30,10 @@ fn policy() -> String {
 <policyconfig>
   <vendor>Picket</vendor>
   <action id="io.github.blanpa.Picket.helper">
-    <description>Picket: Firewall, Mitschnitt und Systemdaten</description>
-    <message>Picket braucht Administratorrechte für Firewall, Mitschnitt oder Systemdaten</message>
+    <description>Picket: firewall, capture and system data</description>
+    <description xml:lang="de">Picket: Firewall, Mitschnitt und Systemdaten</description>
+    <message>Picket needs administrator rights for the firewall, a capture or system data</message>
+    <message xml:lang="de">Picket braucht Administratorrechte für Firewall, Mitschnitt oder Systemdaten</message>
     <icon_name>io.github.blanpa.Picket</icon_name>
     <defaults>
       <allow_any>auth_admin</allow_any>

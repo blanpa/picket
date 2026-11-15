@@ -15,8 +15,8 @@ const TEST_ADDR: &str = "192.0.2.123";
 
 fn step(name: &str, result: Result<String, String>) -> bool {
     match &result {
-        Ok(msg) => println!("  OK      {name}: {msg}"),
-        Err(msg) => println!("  FEHLER  {name}: {msg}"),
+        Ok(msg) => crate::outln!("  OK      {name}: {msg}"),
+        Err(msg) => crate::outln!("  FEHLER  {name}: {msg}"),
     }
     result.is_ok()
 }
@@ -176,21 +176,21 @@ fn capture_loopback() -> Result<String, String> {
 
 pub fn run() -> bool {
     if util::uid() != 0 {
-        eprintln!("Der Selbsttest braucht Root-Rechte:\n  sudo {} selftest-root", util::self_exe());
+        crate::errln!("Der Selbsttest braucht Root-Rechte:\n  sudo {} selftest-root", util::self_exe());
         return false;
     }
-    println!("Selbsttest der Root-Funktionen (ändert nichts dauerhaft):");
+    crate::outln!("Selbsttest der Root-Funktionen (ändert nichts dauerhaft):");
     let mut ok = true;
     ok &= step("Systemdaten lesen", snapshot());
     if util::which("ufw").is_some() {
         ok &= step("Firewall-Regel", firewall_rule());
     } else {
-        println!("  –       Firewall-Regel: ufw ist nicht installiert");
+        crate::outln!("  –       Firewall-Regel: ufw ist nicht installiert");
     }
     ok &= step("Domain sperren", block_domain());
     ok &= step("Verbindung trennen", close_connection());
     ok &= step("Mitschnitt", capture_loopback());
     ok &= step("Helfer", helper::ready().map(|_| format!("{} ist eingerichtet und aktuell", helper::PATH)));
-    println!("{}", if ok { "Alles in Ordnung." } else { "Mindestens ein Schritt ist fehlgeschlagen." });
+    crate::outln!("{}", if ok { "Alles in Ordnung." } else { "Mindestens ein Schritt ist fehlgeschlagen." });
     ok
 }

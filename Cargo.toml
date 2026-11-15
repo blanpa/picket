@@ -2,7 +2,9 @@
 name = "picket"
 version = "0.1.0"
 edition = "2021"
-description = "Picket: Sicherheits-Check für den Linux-Laptop (Firewall, Virenscanner, Updates, Netzwerk)"
+description = "Picket: a security check-up for your Linux laptop (firewall, antivirus, updates, network)"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/blanpa/picket"
 
 [features]
 default = ["gui"]

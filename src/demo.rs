@@ -54,7 +54,7 @@ pub fn report() -> Report {
             .detail("tcp/8080 – Container „web“")
             .detail("   ersetzen durch: \"127.0.0.1:8080:80\"   (in /home/demo/shop/docker-compose.yml)")
             .why("Docker schreibt eigene Firewall-Regeln. Ein mit „8080:80“ veröffentlichter Port ist aus dem ganzen Netz erreichbar – auch bei eingeschalteter ufw.")
-            .fix("In der Compose-Datei 127.0.0.1 voranstellen, wenn der Dienst nur auf diesem Laptop gebraucht wird, und den Container neu erstellen.", &["docker compose up -d"]),
+            .fix("In der Compose-Datei (bzw. bei „docker run -p“) 127.0.0.1 voranstellen, wenn der Dienst nur auf diesem Laptop gebraucht wird, und den Container neu erstellen.", &["docker compose up -d"]),
         finding("docker.power", Docker, "Container mit Zugriff auf das Wirtssystem", Warn, "1 Container kann das Wirtssystem übernehmen.").detail("portainer – Zugriff auf docker.sock"),
         finding("docker.root", Docker, "Container, die als root laufen", Info, "2 von 4 Containern laufen als root."),
         finding("av.installed", Antivirus, "Virenscanner installiert", Ok, "ClamAV ist installiert."),

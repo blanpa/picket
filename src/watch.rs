@@ -3,6 +3,7 @@
 //!
 //! `picket watch` does one round; a systemd user timer runs it regularly.
 
+use crate::i18n::tr;
 use crate::model::{Report, Status};
 use crate::{checks, devices, history, net, privileged, util};
 use serde::{Deserialize, Serialize};
@@ -236,10 +237,10 @@ fn notify(events: &[Event]) {
     let urgent: Vec<&Event> = events.iter().filter(|e| e.level == "crit" || e.level == "warn").collect();
     let (title, body) = match urgent.as_slice() {
         [] => return,
-        [one] => (one.title.clone(), one.text.clone()),
+        [one] => (tr(&one.title), tr(&one.text)),
         many => (
-            format!("{} neue Sicherheitshinweise", many.len()),
-            many.iter().take(6).map(|e| format!("• {}", e.title)).collect::<Vec<_>>().join("\n"),
+            tr(&format!("{} neue Sicherheitshinweise", many.len())),
+            many.iter().take(6).map(|e| format!("• {}", tr(&e.title))).collect::<Vec<_>>().join("\n"),
         ),
     };
     let critical = urgent.iter().any(|e| e.level == "crit");
@@ -319,12 +320,12 @@ pub fn set_timer(enabled: bool) -> Result<(), String> {
         let exe = util::self_exe();
         std::fs::write(
             &service,
-            format!("[Unit]\nDescription=Picket: Wächter\n\n[Service]\nType=oneshot\nExecStart=\"{exe}\" watch\nNice=10\n"),
+            format!("[Unit]\nDescription=Picket: watcher\n\n[Service]\nType=oneshot\nExecStart=\"{exe}\" watch\nNice=10\n"),
         )
         .map_err(|e| e.to_string())?;
         std::fs::write(
             &timer,
-            "[Unit]\nDescription=Picket: regelmäßige Prüfung\n\n[Timer]\nOnStartupSec=2min\nOnUnitActiveSec=5min\n\n[Install]\nWantedBy=timers.target\n",
+            "[Unit]\nDescription=Picket: periodic check\n\n[Timer]\nOnStartupSec=2min\nOnUnitActiveSec=5min\n\n[Install]\nWantedBy=timers.target\n",
         )
         .map_err(|e| e.to_string())?;
         systemctl(&["daemon-reload"])?;

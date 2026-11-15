@@ -2,6 +2,7 @@
 //! the right, one line per program/host pair. Lines with measured traffic move
 //! in the direction the data flows.
 
+use crate::i18n::tr;
 use crate::net::{NetSnapshot, Zone};
 use gtk::prelude::*;
 use gtk::{cairo, glib, pango};
@@ -51,7 +52,7 @@ fn zone_rgb(z: Zone, dark: bool) -> (f64, f64, f64) {
 
 pub fn format_rate(bytes_per_s: f64) -> String {
     if bytes_per_s >= 1_000_000.0 {
-        format!("{:.1} MB/s", bytes_per_s / 1_000_000.0).replace('.', ",")
+        crate::util::decimal(format!("{:.1} MB/s", bytes_per_s / 1_000_000.0))
     } else if bytes_per_s >= 1000.0 {
         format!("{:.0} kB/s", bytes_per_s / 1000.0)
     } else {
@@ -375,7 +376,7 @@ fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
 
 fn text(area: &gtk::DrawingArea, cr: &cairo::Context, markup: &str, x: f64, y: f64, width: f64) {
     let layout = area.create_pango_layout(None);
-    layout.set_markup(markup);
+    layout.set_markup(&tr(markup));
     layout.set_width((width.max(1.0) * f64::from(pango::SCALE)) as i32);
     layout.set_ellipsize(pango::EllipsizeMode::End);
     cr.move_to(x, y);
@@ -533,11 +534,11 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, width: f64, model: &Model)
         let text_w = w - (text_x - x) - 10.0;
         cr.set_source_rgba(fr, fg_g, fb, alpha);
         if n.sub.is_empty() {
-            text(area, cr, &format!("<b>{}</b>", esc(&n.label)), text_x, y + 12.0, text_w);
+            text(area, cr, &format!("<b>{}</b>", esc(&tr(&n.label))), text_x, y + 12.0, text_w);
         } else {
-            text(area, cr, &format!("<b>{}</b>", esc(&n.label)), text_x, y + 4.0, text_w);
+            text(area, cr, &format!("<b>{}</b>", esc(&tr(&n.label))), text_x, y + 4.0, text_w);
             cr.set_source_rgba(fr, fg_g, fb, 0.62 * alpha);
-            text(area, cr, &format!("<span size='small'>{}</span>", esc(&n.sub)), text_x, y + 23.0, text_w);
+            text(area, cr, &format!("<span size='small'>{}</span>", esc(&tr(&n.sub))), text_x, y + 23.0, text_w);
         }
     };
     for (i, n) in layout.programs.iter().enumerate() {
@@ -552,7 +553,7 @@ fn draw(area: &gtk::DrawingArea, cr: &cairo::Context, width: f64, model: &Model)
                 text(
                     area,
                     cr,
-                    &format!("<span size='small' weight='bold'>{}</span>", esc(zone_title(z))),
+                    &format!("<span size='small' weight='bold'>{}</span>", esc(&tr(zone_title(z)))),
                     host_x + 2.0,
                     host_y[i] - HEADER_H + 8.0,
                     host_w,

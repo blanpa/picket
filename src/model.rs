@@ -133,6 +133,22 @@ impl Finding {
         self.commands = cmds.iter().map(|c| c.to_string()).collect();
         self
     }
+
+    /// A copy in the interface language, for showing. Findings themselves stay in the
+    /// original German, so that what is stored (accepted findings, watcher state) does
+    /// not depend on the language.
+    pub fn localized(&self) -> Finding {
+        use crate::i18n::tr;
+        Finding {
+            title: tr(&self.title),
+            summary: tr(&self.summary),
+            details: self.details.iter().map(|d| tr(d)).collect(),
+            why: tr(&self.why),
+            fix: tr(&self.fix),
+            commands: self.commands.iter().map(|c| tr(c)).collect(),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -191,4 +207,11 @@ pub struct Report {
     pub counts: Counts,
     pub privileged: PrivInfo,
     pub findings: Vec<Finding>,
+}
+
+impl Report {
+    /// The report in the interface language (see `Finding::localized`).
+    pub fn localized(&self) -> Report {
+        Report { findings: self.findings.iter().map(Finding::localized).collect(), ..self.clone() }
+    }
 }

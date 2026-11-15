@@ -18,7 +18,7 @@ language, and lets you fix the common problems on the spot.
 It is a single Rust binary with a GTK4/libadwaita window, a terminal interface and a small local browser
 dashboard.
 
-> **Note:** the interface is in German. The code, comments and documentation are in English.
+The interface follows the system language: German on a German system, English everywhere else.
 
 ## What it does
 
@@ -118,7 +118,7 @@ Everything is also available in the terminal:
 | `picket update-data` | Download the country database and the domain blocklist |
 | `picket serve` | The browser dashboard on `127.0.0.1` |
 
-Run `picket help` for the full list.
+Run `picket help` for the full list. `PICKET_LANG=de` or `PICKET_LANG=en` overrides the language.
 
 ## How it treats your system
 
@@ -151,4 +151,11 @@ The details, including a list of every file Picket writes, are in [docs/security
 
 ## License
 
-No license has been chosen yet. All rights reserved.
+Copyright © 2026 blanpa
+
+Picket is free software: you can redistribute it and/or modify it under the terms of the
+[GNU General Public License](LICENSE) as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version.
+
+It is distributed in the hope that it will be useful, but **without any warranty**; without even the implied
+warranty of merchantability or fitness for a particular purpose. See the license for the details.
