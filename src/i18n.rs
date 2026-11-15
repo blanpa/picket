@@ -383,9 +383,9 @@ mod tests {
     fn the_table_is_well_formed() {
         let mut seen = std::collections::HashSet::new();
         for (german, english) in TABLE {
-            assert!(seen.insert(*german), "doppelter Eintrag: {german}");
+            assert!(seen.insert(*german), "duplicate entry: {german}");
             let holes = |t: &str| parse(t).iter().filter(|p| matches!(p, Part::Hole(_))).count();
-            assert_eq!(holes(german), holes(english), "Platzhalter passen nicht: {german} / {english}");
+            assert_eq!(holes(german), holes(english), "placeholders differ: {german} / {english}");
         }
     }
 }

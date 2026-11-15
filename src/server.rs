@@ -134,7 +134,7 @@ struct State {
 }
 
 fn header(name: &str, value: &str) -> Header {
-    Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("statischer Header")
+    Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("static header")
 }
 
 fn respond(req: Request, code: u16, content_type: &str, body: String) {
@@ -372,12 +372,12 @@ mod tests {
     #[test]
     fn the_english_dashboard_covers_the_page() {
         for (german, _) in DASHBOARD_EN {
-            assert!(INDEX_HTML.contains(german), "nicht mehr in index.html: {german}");
+            assert!(INDEX_HTML.contains(german), "no longer in index.html: {german}");
         }
         // No German left over: the page has no umlauts outside its German texts.
         let page = english_page(INDEX_HTML);
         let left: Vec<&str> = page.lines().filter(|l| l.contains(['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü'])).collect();
-        assert!(left.is_empty(), "noch deutsch: {left:#?}");
+        assert!(left.is_empty(), "still German: {left:#?}");
     }
 
     #[test]
